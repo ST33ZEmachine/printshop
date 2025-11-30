@@ -1,0 +1,5 @@
+mcp
+google-genai
+google-adk
+google-cloud-bigquery
+python-dotenv
