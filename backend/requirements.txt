@@ -1,0 +1,10 @@
+# Core dependencies - versions compatible with google-adk
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+pydantic>=2.0.0
+google-adk>=1.0.0
+google-genai>=1.0.0
+google-cloud-bigquery
+python-dotenv
+mcp>=1.0.0
+

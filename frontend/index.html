@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trello Orders Chat</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Trello Orders Chat</h1>
+            <p class="subtitle">Ask questions about your order data</p>
+        </header>
+
+        <div class="chat-container">
+            <div id="chat-messages" class="chat-messages">
+                <div class="message bot-message">
+                    <div class="message-content">
+                        <p>Hello! I'm your data analyst assistant. I can help you explore your Trello order data in BigQuery.</p>
+                        <p>Try asking questions like:</p>
+                        <ul>
+                            <li>"How many orders do we have?"</li>
+                            <li>"Show me orders for customer X"</li>
+                            <li>"What orders are related to rugby?"</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-container">
+                <div class="input-wrapper">
+                    <input 
+                        type="text" 
+                        id="message-input" 
+                        placeholder="Type your question here..." 
+                        autocomplete="off"
+                    >
+                    <button id="send-button" class="send-button">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </div>
+                <div id="error-message" class="error-message"></div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Session ID: <code id="session-id"></code></p>
+        </footer>
+    </div>
+
+    <!-- Markdown parser for formatting responses -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
+

@@ -13,8 +13,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Defaults to 'web' if no argument provided
 ADK_COMMAND=${1:-web}
 
-# ADK expects a directory containing agent subdirectories
-# Run from the project root so it can find adk_trello_agent/
-cd "$SCRIPT_DIR"
-adk $ADK_COMMAND .
+# NOTE: This script is for ADK CLI usage (adk web / adk run)
+# The agent has been moved to root agent.py for Cloud Run usage.
+# If you want to use ADK CLI, you'll need to restore the package structure
+# or use the Cloud Run API instead.
+#
+# For Cloud Run usage, see: backend/README.md
+# For local testing, use: python backend/main.py
+
+echo "Warning: ADK CLI requires package structure. Use Cloud Run API instead."
+echo "See backend/README.md for local development instructions."
+exit 1
 

@@ -146,7 +146,138 @@ extractionPipeline/
 
 ---
 
-## Session 2: Recursive Intelligence Module (TODO)
+## Session 2: Cloud Run + Firebase Hosting Deployment
+**Date:** December 3, 2025
+
+### Overview
+Wrapped the existing ADK Trello Orders Agent in a Cloud Run API and deployed a web chat UI on Firebase Hosting. Created a complete MVP demo stack that allows users to query their BigQuery order data through a simple chat interface.
+
+### What We Built
+
+#### 1. Backend API (`backend/`)
+- **Framework**: FastAPI with async support
+- **Endpoint**: `POST /chat` - accepts `{session_id, message}`, returns `{reply}`
+- **Session Management**: InMemorySessionService for conversation state
+- **Deployment**: Cloud Run with auto-scaling
+
+**Key Files:**
+- `backend/main.py` - FastAPI application
+- `backend/Dockerfile` - Container definition
+- `backend/requirements.txt` - Python dependencies
+- `cloudbuild.yaml` - Cloud Build configuration
+- `deploy-backend.sh` - One-command deployment script
+
+#### 2. Frontend Chat UI (`frontend/`)
+- **Stack**: Vanilla HTML/CSS/JS (no framework)
+- **Features**:
+  - Clean, modern chat interface
+  - Session persistence via localStorage
+  - Auto-scroll to latest messages
+  - Loading states and error handling
+  - Markdown rendering with marked.js
+- **Deployment**: Firebase Hosting
+
+**Key Files:**
+- `frontend/index.html` - Chat interface
+- `frontend/script.js` - API communication and markdown rendering
+- `frontend/styles.css` - Styling with markdown support
+- `frontend/firebase.json` - Hosting configuration
+
+#### 3. Agent Refactoring
+- Moved `agent/adk_trello_agent/agent.py` → `agent.py` (project root)
+- Deleted redundant `agent/agent.py`
+- Updated `run_adk_agent.sh` with deprecation notice
+
+### Architecture
+
+```
+User Browser → Firebase Hosting (maxprint-61206.web.app)
+             → Cloud Run (trello-orders-api-kspii3btya-uc.a.run.app)
+             → ADK Agent + MCP Tools
+             → BigQuery (trello_rag.trello_rag_20210707)
+```
+
+### Key Decisions & Learnings
+
+1. **Session Management**:
+   - Initially tried `VertexAiSessionService` but it requires a Reasoning Engine
+   - Switched to `InMemorySessionService` - simpler, sufficient for MVP
+   - Sessions auto-created on first message
+
+2. **Toolbox Binary**:
+   - Local `toolbox` was macOS ARM64, Cloud Run needs Linux x86_64
+   - Solution: Download Linux binary in Dockerfile from `storage.googleapis.com/genai-toolbox/`
+   - Version: v0.21.0
+
+3. **Dependency Conflicts**:
+   - `google-adk>=1.0.0` requires `starlette>=0.46.2` and `uvicorn>=0.34.0`
+   - Original `fastapi==0.115.0` was incompatible
+   - Solution: Removed version pins, let pip resolve compatible versions
+
+4. **API Changes**:
+   - `types.Part.from_text(message)` → `types.Part(text=message)`
+   - Newer google-genai API changed method signatures
+
+5. **Environment Variables** (Cloud Run):
+   - `BIGQUERY_PROJECT` - BigQuery project ID
+   - `GOOGLE_CLOUD_PROJECT` - GCP project
+   - `GOOGLE_CLOUD_LOCATION` - Region (us-central1)
+   - `GOOGLE_GENAI_USE_VERTEXAI=true` - Use Vertex AI backend
+   - `GEMINI_MODEL` - Model selection
+
+### URLs
+
+- **Frontend**: https://maxprint-61206.web.app
+- **Backend**: https://trello-orders-api-kspii3btya-uc.a.run.app
+- **GCP Project**: maxprint-479504
+- **Firebase Project**: maxprint-61206
+
+### Local Development
+
+```bash
+# Test agent locally
+export BIGQUERY_PROJECT=maxprint-479504
+export GOOGLE_GENAI_USE_VERTEXAI=true
+export GOOGLE_CLOUD_PROJECT=maxprint-479504
+export GOOGLE_CLOUD_LOCATION=us-central1
+python test_agent.py "Search for Rugby Canada orders"
+
+# Deploy backend
+./deploy-backend.sh maxprint-479504
+
+# Deploy frontend
+cd frontend && firebase deploy --only hosting
+```
+
+### Known Issues / TODO
+
+1. **Markdown Rendering**: Added marked.js but formatting still not rendering correctly in production. Fallback regex formatter is in place but needs debugging.
+
+2. **Session Persistence**: Sessions are in-memory, lost on container restart. Consider upgrading to persistent session storage for production.
+
+3. **CORS**: Currently configured for Firebase domains + localhost. May need adjustment for other environments.
+
+---
+
+## Session 3: Markdown Fix + Recursive Intelligence Module (TODO)
+
+**Prompt for Next Session:**
+
+"Last session we deployed the Trello Orders Chat app to Cloud Run + Firebase Hosting. The app is working and querying BigQuery correctly, but there's one issue to fix:
+
+1. **Markdown Rendering Bug**: The chat UI includes marked.js for markdown rendering, but the bot responses are still showing raw markdown (e.g., `**Name:**` instead of **Name:**). The code is in `frontend/script.js` using `marked.parse()`. Please debug why the markdown isn't rendering and fix it.
+
+After fixing that, I'd like to continue with the recursive intelligence module from Session 1's notes - building a system that can analyze extraction failures and improve prompts automatically.
+
+The deployed app URLs are:
+- Frontend: https://maxprint-61206.web.app
+- Backend: https://trello-orders-api-kspii3btya-uc.a.run.app
+
+Let's start by debugging the markdown issue, then move on to the recursive intelligence module."
+
+---
+
+## Session 4: Recursive Intelligence Module (TODO)
 
 **Prompt for Next Session:**
 

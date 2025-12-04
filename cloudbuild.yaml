@@ -1,0 +1,18 @@
+steps:
+  # Build the container image (no cache to ensure fresh build)
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--no-cache'
+      - '-f'
+      - 'backend/Dockerfile'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/trello-orders-api:latest'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/trello-orders-api:$BUILD_ID'
+      - '.'
+
+images:
+  - 'gcr.io/$PROJECT_ID/trello-orders-api:latest'
+  - 'gcr.io/$PROJECT_ID/trello-orders-api:$BUILD_ID'
+
