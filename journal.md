@@ -257,6 +257,13 @@ cd frontend && firebase deploy --only hosting
 
 3. **CORS**: Currently configured for Firebase domains + localhost. May need adjustment for other environments.
 
+4. **Authentication**: Currently public/unauthenticated. Add Firebase Auth or similar before production use. Options:
+   - Firebase Authentication (Google sign-in, email/password)
+   - Cloud Run IAM (require Google account)
+   - API key authentication
+
+5. **Card Hyperlinking**: When displaying order results, add clickable links to the original Trello cards using the `shortUrl` field from the data. This would let users jump directly to the card in Trello for more details.
+
 ---
 
 ## Session 3: Markdown Fix + Recursive Intelligence Module (TODO)
