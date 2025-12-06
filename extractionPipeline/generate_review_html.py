@@ -71,6 +71,8 @@ def generate_html(cards: List[Dict[str, Any]], stats: Dict[str, Any] = None) -> 
     
     # Calculate summary stats
     total_cards = len(cards)
+    cards_with_purchaser = sum(1 for c in cards if c.get("purchaser"))
+    cards_with_order_summary = sum(1 for c in cards if c.get("order_summary"))
     cards_with_extraction = sum(1 for c in cards if c.get("buyer_names") or c.get("buyer_emails"))
     cards_with_judgment = sum(1 for c in cards if c.get("judgment"))
     
@@ -400,7 +402,15 @@ def generate_html(cards: List[Dict[str, Any]], stats: Dict[str, Any] = None) -> 
             <div class="stat-value">{total_cards}</div>
         </div>
         <div class="stat-item">
-            <div class="stat-label">With Extraction</div>
+            <div class="stat-label">With Purchaser</div>
+            <div class="stat-value" style="color: #8b5cf6">{cards_with_purchaser} ({cards_with_purchaser/total_cards*100:.1f}%)</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-label">With Order Summary</div>
+            <div class="stat-value" style="color: #8b5cf6">{cards_with_order_summary} ({cards_with_order_summary/total_cards*100:.1f}%)</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-label">With Buyer Contact</div>
             <div class="stat-value">{cards_with_extraction} ({cards_with_extraction/total_cards*100:.1f}%)</div>
         </div>
         <div class="stat-item">
@@ -460,7 +470,11 @@ def generate_html(cards: List[Dict[str, Any]], stats: Dict[str, Any] = None) -> 
         card_name = card.get("name", "Untitled Card")
         card_desc = card.get("desc", "")
         
-        # Extraction data
+        # Title-parsed data (simple string parsing)
+        purchaser = card.get("purchaser")
+        order_summary = card.get("order_summary")
+        
+        # LLM extraction data
         buyer_names = card.get("buyer_names", [])
         buyer_emails = card.get("buyer_emails", [])
         primary_name = card.get("primary_buyer_name")
@@ -508,12 +522,30 @@ def generate_html(cards: List[Dict[str, Any]], stats: Dict[str, Any] = None) -> 
             </div>
             
             <div class="section">
+                <div class="section-title">Title Parsed Fields</div>
+                <div class="extraction-grid">
+                    <div class="extraction-item" style="border-left: 4px solid #8b5cf6;">
+                        <div class="extraction-label">Purchaser (Company/Person)</div>
+                        <div class="extraction-value" style="font-weight: 600; font-size: 1rem;">
+                            {escape_html(purchaser) if purchaser else '<em style="color: #9ca3af;">Not found in title</em>'}
+                        </div>
+                    </div>
+                    <div class="extraction-item" style="border-left: 4px solid #8b5cf6;">
+                        <div class="extraction-label">Order Summary</div>
+                        <div class="extraction-value" style="font-weight: 600; font-size: 1rem;">
+                            {escape_html(order_summary) if order_summary else '<em style="color: #9ca3af;">Not found in title</em>'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section">
                 <div class="section-title">Original Description</div>
                 <div class="description-box">{format_text(card_desc)}</div>
             </div>
             
             <div class="section">
-                <div class="section-title">Extracted Buyer Information</div>
+                <div class="section-title">Extracted Buyer Information (LLM)</div>
                 <div class="extraction-grid">
                     <div class="extraction-item">
                         <div class="extraction-label">Buyer Names</div>

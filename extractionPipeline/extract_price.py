@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 PROJECT_ID = os.environ.get("BIGQUERY_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
-MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash-exp")
+MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
-DEFAULT_BATCH_SIZE = 10  # Process cards in batches to optimize API usage
+DEFAULT_BATCH_SIZE = 100  # Larger batch size to reduce API calls
 
 
 def extract_price_from_batch(

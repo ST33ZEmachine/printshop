@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ID = os.environ.get("BIGQUERY_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
 MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
-DEFAULT_BATCH_SIZE = 10  # Smaller batches for more thorough review
+DEFAULT_BATCH_SIZE = 100  # Larger batch size to reduce API calls
 
 
 def judge_extraction_batch(

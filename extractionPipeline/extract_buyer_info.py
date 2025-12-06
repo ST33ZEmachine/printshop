@@ -4,8 +4,12 @@ Extraction Pipeline: Buyer Name and Email Extraction from Trello Cards
 This script uses an LLM (Google Gemini) to extract buyer names and email addresses
 from Trello card names and descriptions, storing them in separate fields.
 
+It also extracts structured fields from card titles using simple string parsing:
+- purchaser: The company/person name (first segment before "|")
+- order_summary: Brief description of the order (second segment between first and second "|")
+
 Usage:
-    python extract_buyer_info.py [--input INPUT_FILE] [--output OUTPUT_FILE] [--batch-size BATCH_SIZE]
+    python extract_buyer_info.py [--input INPUT_FILE] [--output OUTPUT_FILE] [--batch-size BATCH_SIZE] [--limit LIMIT]
 """
 
 import argparse
@@ -14,7 +18,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
@@ -35,7 +39,52 @@ logger = logging.getLogger(__name__)
 PROJECT_ID = os.environ.get("BIGQUERY_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
 MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
 LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
-DEFAULT_BATCH_SIZE = 20  # Process more cards per batch since this is simpler extraction
+DEFAULT_BATCH_SIZE = 100  # Larger batch size to reduce API calls
+
+
+def extract_title_fields(card_name: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract purchaser and order_summary from card title using pipe delimiter.
+    
+    Card titles follow the format: "Company Name | Order Summary | Additional Info"
+    
+    Args:
+        card_name: The card title/name string
+        
+    Returns:
+        Tuple of (purchaser, order_summary) - either can be None if not found
+    """
+    if not card_name or "|" not in card_name:
+        return None, None
+    
+    parts = [p.strip() for p in card_name.split("|")]
+    
+    purchaser = parts[0] if len(parts) > 0 and parts[0] else None
+    order_summary = parts[1] if len(parts) > 1 and parts[1] else None
+    
+    return purchaser, order_summary
+
+
+def enrich_cards_with_title_fields(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Add purchaser and order_summary fields to cards by parsing their titles.
+    This is a fast, non-LLM operation.
+    
+    Args:
+        cards: List of card dictionaries
+        
+    Returns:
+        List of cards with added purchaser and order_summary fields
+    """
+    enriched = []
+    for card in cards:
+        enriched_card = card.copy()
+        card_name = card.get("name", "")
+        purchaser, order_summary = extract_title_fields(card_name)
+        enriched_card["purchaser"] = purchaser
+        enriched_card["order_summary"] = order_summary
+        enriched.append(enriched_card)
+    return enriched
 
 
 def extract_buyer_info_from_batch(
@@ -60,7 +109,7 @@ def extract_buyer_info_from_batch(
         card_name = card.get("name", "N/A")
         card_desc = card.get("desc", "")
         card_data.append(
-            f"Card {i+1}:\n"
+            f"[Card index={i}]\n"
             f"  Title: {card_name}\n"
             f"  Description: {card_desc}\n"
         )
@@ -86,9 +135,10 @@ IMPORTANT RULES:
 - If an email appears multiple times, include it only once
 - If no name/email found, use empty array
 - Distinguish between buyer names and other names (like "General Manager" titles - extract the person's name, not the title)
+- CRITICAL: The "index" field in your response MUST exactly match the index shown in [Card index=N] for each card
 
 Return a JSON array with one object per card. Each object should have:
-- "index": the card index (0-based)
+- "index": the card index (MUST match the index=N shown above each card)
 - "buyer_names": array of buyer/customer names found (as strings), empty array if none
 - "buyer_emails": array of email addresses found (as strings), empty array if none
 - "primary_buyer_name": the primary/most relevant buyer name (string or null)
@@ -319,6 +369,12 @@ def main():
         default=None,
         help=f"Gemini model ID (default: {MODEL_ID})"
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit number of cards to process (for testing)"
+    )
     
     args = parser.parse_args()
     
@@ -345,6 +401,8 @@ def main():
     logger.info(f"Model: {model_id}")
     logger.info(f"Project: {PROJECT_ID}")
     logger.info(f"Batch size: {args.batch_size}")
+    if args.limit:
+        logger.info(f"Card limit: {args.limit}")
     
     # Load Trello JSON
     logger.info("Loading Trello JSON file...")
@@ -356,11 +414,25 @@ def main():
         sys.exit(1)
     
     cards = data.get("cards", [])
-    logger.info(f"Loaded {len(cards)} cards")
+    total_cards_in_file = len(cards)
+    logger.info(f"Loaded {total_cards_in_file} cards from file")
+    
+    # Apply limit if specified
+    if args.limit and args.limit < len(cards):
+        cards = cards[:args.limit]
+        logger.info(f"Limited to {len(cards)} cards for processing")
     
     if not cards:
         logger.warning("No cards found in JSON file")
         sys.exit(0)
+    
+    # First, extract title fields (purchaser and order_summary) - fast, no LLM needed
+    logger.info("Extracting purchaser and order_summary from card titles...")
+    cards = enrich_cards_with_title_fields(cards)
+    cards_with_purchaser = sum(1 for c in cards if c.get("purchaser"))
+    cards_with_order_summary = sum(1 for c in cards if c.get("order_summary"))
+    logger.info(f"  - Cards with purchaser: {cards_with_purchaser}/{len(cards)}")
+    logger.info(f"  - Cards with order_summary: {cards_with_order_summary}/{len(cards)}")
     
     # Initialize Gemini client
     logger.info("Initializing Gemini client...")
@@ -394,16 +466,21 @@ def main():
                          c.get("buyer_emails") and len(c.get("buyer_emails", [])) > 0)
     cards_with_multiple_names = sum(1 for c in enriched_cards if len(c.get("buyer_names", [])) > 1)
     cards_with_multiple_emails = sum(1 for c in enriched_cards if len(c.get("buyer_emails", [])) > 1)
+    cards_with_purchaser = sum(1 for c in enriched_cards if c.get("purchaser"))
+    cards_with_order_summary = sum(1 for c in enriched_cards if c.get("order_summary"))
     
     data["extraction_metadata"]["buyer_extraction"] = {
         "model": model_id,
         "batch_size": args.batch_size,
         "total_cards": len(enriched_cards),
+        "cards_with_purchaser": cards_with_purchaser,
+        "cards_with_order_summary": cards_with_order_summary,
         "cards_with_names": cards_with_names,
         "cards_with_emails": cards_with_emails,
         "cards_with_both": cards_with_both,
         "cards_with_multiple_names": cards_with_multiple_names,
         "cards_with_multiple_emails": cards_with_multiple_emails,
+        "limit_applied": args.limit,
     }
     
     # Save enriched JSON
@@ -425,6 +502,14 @@ def main():
     logger.info("EXTRACTION SUMMARY")
     logger.info("="*60)
     logger.info(f"Total cards processed: {len(enriched_cards)}")
+    if args.limit:
+        logger.info(f"  (Limited from {total_cards_in_file} total cards in file)")
+    logger.info("-"*60)
+    logger.info("TITLE PARSING (purchaser | order_summary):")
+    logger.info(f"Cards with purchaser: {cards_with_purchaser} ({cards_with_purchaser/len(enriched_cards)*100:.1f}%)")
+    logger.info(f"Cards with order_summary: {cards_with_order_summary} ({cards_with_order_summary/len(enriched_cards)*100:.1f}%)")
+    logger.info("-"*60)
+    logger.info("LLM EXTRACTION (buyer contact names & emails):")
     logger.info(f"Cards with buyer names: {cards_with_names} ({cards_with_names/len(enriched_cards)*100:.1f}%)")
     logger.info(f"  - Cards with multiple names: {cards_with_multiple_names}")
     logger.info(f"Cards with buyer emails: {cards_with_emails} ({cards_with_emails/len(enriched_cards)*100:.1f}%)")

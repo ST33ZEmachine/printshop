@@ -3,3 +3,10 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
+
+# Large data files (keep in cloud storage, not git)
+extractionPipeline/LyB2G53h*.json
+extractionPipeline/bourquin_*.json
+extractionPipeline/*_enriched*.json
+extractionPipeline/*_judged.json
+extractionPipeline/*_judged.html

@@ -82,11 +82,38 @@ async def interactive_mode():
 
 
 if __name__ == "__main__":
+    import warnings
+    import logging
+    import contextlib
+    
+    # Suppress the anyio cleanup warning (cosmetic issue during MCP teardown)
+    warnings.filterwarnings("ignore", message=".*cancel scope.*")
+    logging.getLogger("anyio").setLevel(logging.CRITICAL)
+    
+    # Suppress stderr noise during async cleanup
+    @contextlib.contextmanager
+    def suppress_cleanup_errors():
+        """Suppress MCP/anyio cleanup errors that occur after work is done."""
+        import io
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            yield
+        finally:
+            # Check if there was a real error (not just cleanup noise)
+            stderr_output = sys.stderr.getvalue()
+            sys.stderr = old_stderr
+            # Only print if it's NOT the known cleanup error
+            if stderr_output and "cancel scope" not in stderr_output and "GeneratorExit" not in stderr_output:
+                print(stderr_output, file=sys.stderr)
+    
     if len(sys.argv) > 1:
         # Run with provided question
         question = " ".join(sys.argv[1:])
-        asyncio.run(test_agent(question))
+        with suppress_cleanup_errors():
+            asyncio.run(test_agent(question))
     else:
         # Run in interactive mode
-        asyncio.run(interactive_mode())
+        with suppress_cleanup_errors():
+            asyncio.run(interactive_mode())
 
