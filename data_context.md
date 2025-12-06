@@ -1,97 +1,227 @@
-# Trello Order Data Context
+# Bourquin Signs - Data Context
 
 ## Overview
-This BigQuery project contains data extracted from a Trello board that tracks orders made to the business. The data structure reflects how orders are organized in Trello.
+This BigQuery project contains data extracted from a Trello board that tracks signage orders for Bourquin Signs. The data is organized into two main tables with a parent-child relationship.
 
-## Data Source
-- **Source**: Trello board
-- **Purpose**: Track and manage business orders
-- **Data Type**: Order information, customer details, order statuses
+## Project Details
+- **GCP Project**: `maxprint-479504`
+- **Dataset**: `trello_rag`
+- **Data Snapshot Date**: December 5, 2024
 
-## Understanding Trello Data Structure
+---
 
-### Key Concepts
-- **Cards**: Represent individual orders
-- **Lists**: Represent order statuses/stages (e.g., "New Orders", "In Progress", "Completed", "Shipped")
-- **Labels**: May represent order types, priorities, or categories
-- **Members**: May represent assigned staff or customers
-- **Custom Fields**: May contain order-specific data like amounts, quantities, dates
+## Table Architecture
 
-### Common Data Patterns
+```
+┌─────────────────────────────────────────┐
+│  bourquin_05122025_snapshot             │
+│  (CARDS - Master/Dimension Table)       │
+│  ~12,500 rows                           │
+├─────────────────────────────────────────┤
+│  card_id (PK)                           │
+│  name, desc, list_name, purchaser       │
+│  buyer_name, buyer_email, etc.          │
+└───────────────┬─────────────────────────┘
+                │
+                │ 1:N relationship
+                │ (order_id = card_id)
+                ▼
+┌─────────────────────────────────────────┐
+│  bourquin_05122025_snapshot_lineitems   │
+│  (LINE ITEMS - Fact Table)              │
+│  ~19,200 rows                           │
+├─────────────────────────────────────────┤
+│  order_id (FK to card_id)               │
+│  line_index, price, quantity            │
+│  material, dimensions, etc.             │
+└─────────────────────────────────────────┘
+```
 
-#### Order Information
-- Order IDs (may be card IDs or custom fields)
-- Order dates (card creation date, due dates)
-- Order status (list name where card resides)
-- Order amounts/pricing (custom fields or card descriptions)
-- Customer information (card members, custom fields, or descriptions)
+---
 
-#### Status Tracking
-- Order status is typically represented by which Trello list the card is in
-- Common statuses might include:
-  - New/Received
-  - Processing/In Progress
-  - Pending
-  - Completed/Fulfilled
-  - Shipped
-  - Cancelled
+## Table 1: bourquin_05122025_snapshot (Cards Master)
 
-#### Date Fields
-- **Created Date**: When the order was first created (card creation)
-- **Due Date**: When the order should be completed
-- **Last Activity**: When the order was last updated
-- **Completion Date**: When the order moved to completed status
+### Description
+Contains one row per Trello card (order). This is the master record for each order with customer information, status, and metadata.
 
-## Querying Tips
+### Key Columns
+| Column | Type | Description |
+|--------|------|-------------|
+| `card_id` | STRING | **Primary Key** - Unique identifier for the card/order |
+| `name` | STRING | Card title (often contains: "Customer \| Product \| ID") |
+| `desc` | STRING | Full card description with order details |
+| `list_name` | STRING | Current status/stage (e.g., "New", "In Progress", "Complete") |
+| `purchaser` | STRING | Company/customer name (parsed from title) |
+| `order_summary` | STRING | Brief order description (parsed from title) |
+| `primary_buyer_name` | STRING | Contact person name (LLM extracted) |
+| `primary_buyer_email` | STRING | Contact email (LLM extracted) |
+| `buyer_confidence` | STRING | Confidence of buyer extraction: high/medium/low |
+| `dateLastActivity` | TIMESTAMP | Last update timestamp |
+| `shortUrl` | STRING | Link to Trello card |
 
-### Finding Orders
-- Look for tables with names like: `orders`, `cards`, `trello_cards`, `order_data`
-- Order IDs might be in columns like: `order_id`, `card_id`, `id`, `order_number`
+### Data Quality
+- ~12,500 cards total
+- ~88% have parseable order content
+- Buyer info extracted via LLM with confidence scoring
 
-### Finding Status Information
-- Status might be in: `status`, `list_name`, `list_id`, `stage`, `order_status`
-- May need to join with a lists/statuses table
+---
 
-### Finding Customer Information
-- Customer data might be in: `customer_name`, `member_name`, `client`, `customer_id`
-- Could be in the same table as orders or a separate customers table
+## Table 2: bourquin_05122025_snapshot_lineitems (Line Items)
 
-### Finding Order Values
-- Amounts might be in: `amount`, `total`, `price`, `value`, `cost`
-- Could be in custom fields or card descriptions
+### Description
+Contains extracted order line items from card descriptions. Each row represents one product/service within an order. Generated via LLM extraction with regex fallback.
+
+### Key Columns
+| Column | Type | Description |
+|--------|------|-------------|
+| `order_id` | STRING | **Foreign Key** - Links to `card_id` in cards table |
+| `line_index` | INTEGER | Position within the order (1, 2, 3...) |
+| `order_class` | STRING | "Supply", "Install", or "Supply & Install" |
+| `quantity` | INTEGER | Number of items |
+| `price` | FLOAT | Unit price in dollars |
+| `raw_price_text` | STRING | Original price text for verification |
+| `price_validated` | BOOLEAN | TRUE if price verified against source |
+| `width_in` | FLOAT | Width in inches |
+| `height_in` | FLOAT | Height in inches |
+| `raw_dimensions_text` | STRING | Original dimension text (e.g., "24x36") |
+| `material` | STRING | Product material (e.g., "Aluminum Composite Panel", "Coroplast") |
+| `description` | STRING | Item description |
+| `colour` | STRING | Color if specified |
+| `extra_notes` | STRING | Additional notes, flags |
+| `raw_line_text` | STRING | Original source text |
+| `llm_confidence` | STRING | Extraction confidence: high/medium/low |
+
+### Data Quality
+- **19,203 line items** extracted
+- **99.3% price accuracy** (verified via spot-check)
+- **$1,954,895 total order value** captured
+- Use `price_validated = TRUE` for highest confidence pricing data
+
+### Extraction Methods
+- **98% LLM extracted** (Gemini 2.5 Flash)
+- **2% Regex extracted** (fallback for edge cases, marked with `[REGEX_EXTRACTED]` in extra_notes)
+
+---
 
 ## Common Query Patterns
 
-### Order Status Summary
+### Total Order Value
 ```sql
--- Example: Count orders by status
-SELECT status, COUNT(*) as order_count
-FROM orders
-GROUP BY status
-ORDER BY order_count DESC
+SELECT 
+  SUM(price * COALESCE(quantity, 1)) as total_value,
+  COUNT(*) as line_items
+FROM `maxprint-479504.trello_rag.bourquin_05122025_snapshot_lineitems`
+WHERE price_validated = TRUE;
 ```
 
-### Orders by Date Range
+### Revenue by Customer
 ```sql
--- Example: Orders in a date range
-SELECT *
-FROM orders
-WHERE order_date BETWEEN '2024-01-01' AND '2024-12-31'
-ORDER BY order_date DESC
-```
-
-### Customer Order History
-```sql
--- Example: Orders by customer
-SELECT customer_name, COUNT(*) as total_orders, SUM(amount) as total_value
-FROM orders
-GROUP BY customer_name
+SELECT 
+  c.purchaser,
+  COUNT(DISTINCT c.card_id) as orders,
+  COUNT(*) as line_items,
+  SUM(li.price * COALESCE(li.quantity, 1)) as total_value
+FROM `maxprint-479504.trello_rag.bourquin_05122025_snapshot_lineitems` li
+JOIN `maxprint-479504.trello_rag.bourquin_05122025_snapshot` c 
+  ON li.order_id = c.card_id
+WHERE li.price_validated = TRUE
+GROUP BY c.purchaser
 ORDER BY total_value DESC
+LIMIT 20;
 ```
 
-## Notes
-- Table and column names may vary based on how Trello data was exported
-- Some data might be in JSON format if custom fields were preserved
-- Date formats may need conversion depending on export format
-- Always verify actual table and column names using schema discovery tools
+### Revenue by Material Type
+```sql
+SELECT 
+  material,
+  COUNT(*) as line_items,
+  SUM(price * COALESCE(quantity, 1)) as total_value,
+  AVG(price) as avg_unit_price
+FROM `maxprint-479504.trello_rag.bourquin_05122025_snapshot_lineitems`
+WHERE material IS NOT NULL AND price_validated = TRUE
+GROUP BY material
+ORDER BY total_value DESC;
+```
 
+### Orders by Status
+```sql
+SELECT 
+  c.list_name as status,
+  COUNT(DISTINCT c.card_id) as orders,
+  SUM(li.price * COALESCE(li.quantity, 1)) as total_value
+FROM `maxprint-479504.trello_rag.bourquin_05122025_snapshot` c
+LEFT JOIN `maxprint-479504.trello_rag.bourquin_05122025_snapshot_lineitems` li
+  ON c.card_id = li.order_id
+GROUP BY c.list_name
+ORDER BY orders DESC;
+```
+
+### High-Value Orders
+```sql
+SELECT 
+  c.card_id,
+  c.purchaser,
+  c.name as order_name,
+  SUM(li.price * COALESCE(li.quantity, 1)) as order_total
+FROM `maxprint-479504.trello_rag.bourquin_05122025_snapshot` c
+JOIN `maxprint-479504.trello_rag.bourquin_05122025_snapshot_lineitems` li
+  ON c.card_id = li.order_id
+WHERE li.price_validated = TRUE
+GROUP BY c.card_id, c.purchaser, c.name
+HAVING order_total > 1000
+ORDER BY order_total DESC
+LIMIT 50;
+```
+
+### Product Size Analysis
+```sql
+SELECT 
+  CASE 
+    WHEN width_in * height_in > 2000 THEN 'Large (>2000 sq in)'
+    WHEN width_in * height_in > 500 THEN 'Medium (500-2000 sq in)'
+    ELSE 'Small (<500 sq in)'
+  END as size_category,
+  COUNT(*) as items,
+  AVG(price) as avg_price
+FROM `maxprint-479504.trello_rag.bourquin_05122025_snapshot_lineitems`
+WHERE width_in IS NOT NULL AND height_in IS NOT NULL
+GROUP BY size_category;
+```
+
+---
+
+## Important Notes
+
+### Price Data Confidence
+- **Use `price_validated = TRUE`** for financial analysis
+- ~0.3% of prices may have extraction errors (batch processing artifacts)
+- Validated prices were cross-checked against original source text
+
+### Joining Tables
+- Always join on `order_id = card_id`
+- One card can have multiple line items (avg 1.7 per card)
+- Some cards have no line items (non-order cards like notes, measurements)
+
+### Common Materials
+- Aluminum Composite Panel (ACP)
+- Coroplast (corrugated plastic)
+- Vinyl (cut vinyl, printed vinyl)
+- Acrylic
+- Sintra
+- Lexan
+- Styrene
+
+### Order Classes
+- **Supply**: Materials/products only
+- **Install**: Installation labor only
+- **Supply & Install**: Both materials and installation
+
+---
+
+## Future Tables (Planned)
+
+### card_events (Event-Driven Data)
+Will capture real-time Trello webhooks:
+- Card created/updated/moved/archived events
+- Workflow timing analytics
+- Status change history

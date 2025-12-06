@@ -84,10 +84,16 @@ Optional:
 
 ### Service Account
 
-Ensure the Cloud Run service has the following IAM roles:
-- BigQuery Data Viewer
-- BigQuery Job User
-- Vertex AI User
+The Cloud Run service uses a dedicated read-only service account:
+- **Service Account**: `maxprint-agent-readonly@maxprint-479504.iam.gserviceaccount.com`
+- **IAM Roles**:
+  - `roles/bigquery.dataViewer` (read-only access to BigQuery tables)
+  - `roles/bigquery.jobUser` (can run queries)
+  - `roles/aiplatform.user` (for Vertex AI / Gemini API access)
+
+This service account is automatically assigned via the `--service-account` flag in `deploy-backend.sh`.
+
+**Security Note**: This service account has read-only access to BigQuery, preventing the agent from accidentally modifying or deleting data.
 
 ## API Endpoints
 

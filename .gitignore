@@ -4,9 +4,17 @@ __pycache__/
 .env
 .DS_Store
 
+# Service account keys (sensitive!)
+*-key.json
+agent-readonly-key.json
+
 # Large data files (keep in cloud storage, not git)
 extractionPipeline/LyB2G53h*.json
 extractionPipeline/bourquin_*.json
 extractionPipeline/*_enriched*.json
 extractionPipeline/*_judged.json
 extractionPipeline/*_judged.html
+extractionPipeline/*.csv
+extractionPipeline/*.csv.backup
+extractionPipeline/*.jsonl
+extractionPipeline/*_test_*.csv

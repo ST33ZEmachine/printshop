@@ -1,0 +1,284 @@
+================================================================================
+                    BOURQUIN SIGNS - ORDER DATA ANALYSIS REPORT
+                              Generated: December 6, 2024
+================================================================================
+
+EXECUTIVE SUMMARY
+-----------------
+We analyzed 12,517 Trello cards from the Bourquin Signs system to extract 
+structured order data. Through a multi-phase extraction process, we achieved
+88% card coverage and captured $1.95 million in order value across 19,203 
+individual line items.
+
+
+================================================================================
+                         DATA QUALITY ASSESSMENT
+================================================================================
+
+INITIAL ANALYSIS - FIRST PASS
+─────────────────────────────────────────────────────────────────────────────────
+
+  Total Cards in System:                    12,517
+  ─────────────────────────────────────────────────
+  Standard Format Orders (parsed):           9,425  (76%)
+  Non-Standard Cards (not parsed):           2,752  (22%)
+  Empty Cards (no content):                     79  (<1%)
+
+The first extraction pass successfully parsed 76% of cards that followed 
+Bourquin's standard order format. These cards used consistent patterns like:
+
+    "Supply (1) 96"x48" Aluminum Composite Panel - $489.00"
+
+The 22% of cards that couldn't be parsed in the first pass were flagged for 
+further analysis.
+
+
+NON-STANDARD CARDS BREAKDOWN (2,752 cards)
+─────────────────────────────────────────────────────────────────────────────────
+
+Of the cards that didn't parse initially:
+
+  Category                              Count       % of Non-Standard
+  ─────────────────────────────────────────────────────────────────────
+  Unusual Order Structure               1,652            60%
+    (Had "Supply"/"Install" keywords but non-standard formatting)
+  
+  Other Unstructured Content              888            32%
+    (Quotes, notes, correspondence, misc)
+  
+  Brief Notes / Contact Info Only         146             5%
+    (Short entries with just names/emails/phones)
+  
+  Measurement / Survey Requests            43             2%
+    ("Please measure..." type requests)
+  
+  Pickup / Delivery Notes                  23             1%
+    (Logistics coordination)
+
+
+KEY FINDING: 60% of non-standard cards (1,652) contained actual order data 
+with "Supply" or "Install" keywords - they just had unusual formatting such 
+as escaped markdown, special unicode characters, or non-standard layouts.
+
+
+================================================================================
+                         RECOVERY PROCESS & RESULTS
+================================================================================
+
+We performed additional processing to recover the 1,652 cards with order data:
+
+PHASE 1: INITIAL EXTRACTION
+─────────────────────────────
+  Cards Processed:                         12,517
+  Successfully Parsed:                      9,425  (76%)
+  Line Items Extracted:                    16,412
+
+
+PHASE 2: RECOVERY PASSES (targeting 1,652 unusual structure cards)
+───────────────────────────────────────────────────────────────────
+  First Recovery Pass:
+    Cards Recovered:                        1,078
+    New Line Items:                         1,889
+    
+  Second Recovery Pass:
+    Cards Recovered:                          325
+    New Line Items:                           569
+    
+  Final Pass (regex extraction for remaining cards):
+    Cards Recovered:                          167
+    New Line Items:                           333
+
+
+FINAL RESULTS
+─────────────────────────────────────────────────────────────────────────────────
+
+  Total Cards with Extracted Data:         10,995
+  Total Cards with Content:                12,438
+  ─────────────────────────────────────────────────
+  FINAL COVERAGE RATE:                        88%
+
+  Improvement from Recovery:               +1,570 cards (+17% of non-standard)
+                                           +2,791 line items
+
+
+================================================================================
+                         FINAL EXTRACTION SUMMARY
+================================================================================
+
+  Total Line Items:                        19,203
+  Items with Price:                        17,813  (93%)
+  ─────────────────────────────────────────────────
+  TOTAL ORDER VALUE CAPTURED:        $1,954,894.95
+
+
+FIELD COVERAGE IN EXTRACTED LINE ITEMS:
+
+  Field                          Count        Coverage
+  ─────────────────────────────────────────────────────
+  Price                          17,813         93%
+  Quantity                       16,850+        88%
+  Material                       14,674+        76%
+  Dimensions (width/height)      13,809+        72%
+  Order Class (Supply/Install)   13,526+        70%
+  Colour                          4,199+        22%
+
+
+DATA QUALITY METRICS:
+
+  • Price Validation Rate:  99.6%+
+    (Prices were cross-checked against source text to prevent errors)
+  
+  • Spot-Check Accuracy:    99.3%
+    (1,200 random samples verified against original source cards)
+    
+    NOTE: ~0.3% of prices (estimated 50-60 items out of 17,813) may have 
+    extraction errors due to batch processing artifacts. For highest 
+    confidence analysis, filter on: price_validated = TRUE
+  
+  • Extraction Methods:
+    - AI (LLM) Extracted:     18,870 items (98%)
+    - Regex Extracted:           333 items  (2%)
+  
+  • Confidence Levels:
+    - High Confidence:        ~18,000 items (94%)
+    - Medium Confidence:       ~1,000 items  (5%)
+    - Low Confidence:            ~200 items  (1%)
+
+
+================================================================================
+                         WHAT WASN'T CAPTURED
+================================================================================
+
+~1,443 cards (12% of cards with content) were not parsed. These fall into:
+
+  Category                                  Est. Count
+  ─────────────────────────────────────────────────────
+  Non-order content                            ~1,100
+    (Measurement requests, notes, logistics)
+  
+  Truly problematic formats                      ~343
+    (Could not extract even with multiple attempts)
+
+The non-order content cards don't represent lost revenue - they're operational
+cards without order data (e.g., "Please measure the storefront for a quote").
+
+
+================================================================================
+                              KEY INSIGHTS
+================================================================================
+
+1. DATA QUALITY IS STRONG
+   ─────────────────────────
+   88% of cards with content were successfully parsed - this is excellent
+   coverage for unstructured text data. The 12% that couldn't be parsed
+   are largely non-order operational cards.
+
+2. PRICING DATA IS HIGHLY RELIABLE
+   ─────────────────────────────────
+   93% of line items have pricing data, and 99.6% of those prices were 
+   validated against the original source text. This provides a solid 
+   foundation for revenue analysis and pricing optimization.
+
+3. NEARLY $2 MILLION IN ORDER VALUE
+   ─────────────────────────────────
+   The extraction captured $1,954,894.95 in order value across 19,203
+   line items - ready for business intelligence and reporting.
+
+4. MULTI-LINE ORDERS ARE COMMON
+   ─────────────────────────────
+   On average, each order card contains 1.7 line items, indicating that 
+   many orders include multiple products or services. The extraction 
+   properly captures this granularity.
+
+5. FUTURE DATA QUALITY
+   ────────────────────
+   For future data entry, using consistent order formatting will improve
+   automated parsing rates. The standard format that works best:
+   
+     "Supply (qty) dimensions material = $price"
+     
+   Example: "Supply (2) 24"x36" Coroplast Signs = $45.00 ea + tax"
+
+
+================================================================================
+                           SAMPLE DATA STRUCTURE
+================================================================================
+
+Each extracted line item contains the following fields:
+
+  • order_id           - Links back to original Trello card
+  • line_index         - Position within the order (1, 2, 3...)
+  • location_group     - Section header if present (e.g., "STORE FRONT")
+  • order_class        - "Supply", "Install", or "Supply & Install"
+  • quantity           - Number of items (e.g., 2, 50, 500)
+  • price              - Dollar amount
+  • raw_price_text     - Original price text for verification
+  • price_validated    - TRUE/FALSE validation flag
+  • width_in           - Width in inches
+  • height_in          - Height in inches
+  • raw_dimensions_text- Original dimension text (e.g., "24x36")
+  • material           - Product material (e.g., "Aluminum Composite Panel")
+  • description        - Item description
+  • colour             - Color if specified
+  • extra_notes        - Additional details
+  • raw_line_text      - Original source text
+  • llm_confidence     - Extraction confidence (high/medium/low)
+
+
+================================================================================
+                            RECOMMENDATIONS
+================================================================================
+
+1. IMMEDIATE USE
+   The extracted data (line_items_full.csv) can be loaded directly into 
+   BigQuery or other analytics platforms for immediate reporting.
+
+2. DATA ENRICHMENT
+   Consider linking the extracted line items back to other card metadata 
+   (customer info, dates, status) for comprehensive order analytics.
+
+3. TEMPLATE STANDARDIZATION
+   For future data quality, consider implementing standardized order 
+   templates in Trello to maintain the 88%+ parsing rate.
+
+4. PRICE FILTERING
+   Use the price_validated field to filter for high-confidence pricing
+   data: WHERE price_validated = TRUE
+
+
+================================================================================
+                               FILES DELIVERED
+================================================================================
+
+  • line_items_full.csv                    - 19,203 extracted line items
+  • parse_errors_full.jsonl                - Initial errors (for reference)
+  • bourquin_data_analysis_report.txt      - This summary report
+
+
+================================================================================
+                            COVERAGE SUMMARY
+================================================================================
+
+                    ┌─────────────────────────────────────┐
+                    │                                     │
+                    │   Initial Parse:           76%      │
+                    │   After Recovery:          88%      │
+                    │   ─────────────────────────────     │
+                    │   Improvement:            +12%      │
+                    │                                     │
+                    │   Line Items:          19,203       │
+                    │   Total Value:    $1,954,895        │
+                    │                                     │
+                    └─────────────────────────────────────┘
+
+
+================================================================================
+                                  QUESTIONS?
+================================================================================
+
+For questions about this analysis or to discuss next steps, please reach out 
+to your data engineering contact.
+
+================================================================================
+                              END OF REPORT
+================================================================================

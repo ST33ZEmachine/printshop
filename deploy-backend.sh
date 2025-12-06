@@ -23,11 +23,13 @@ gcloud builds submit --config cloudbuild.yaml --project ${PROJECT_ID} .
 
 # Deploy to Cloud Run
 echo "🚀 Deploying to Cloud Run..."
+echo "Using read-only service account: maxprint-agent-readonly@${PROJECT_ID}.iam.gserviceaccount.com"
 gcloud run deploy ${SERVICE_NAME} \
   --image ${IMAGE_NAME} \
   --platform managed \
   --region ${REGION} \
   --project ${PROJECT_ID} \
+  --service-account maxprint-agent-readonly@${PROJECT_ID}.iam.gserviceaccount.com \
   --allow-unauthenticated \
   --set-env-vars BIGQUERY_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GEMINI_MODEL=gemini-2.0-flash-exp,GOOGLE_GENAI_USE_VERTEXAI=true \
   --memory 2Gi \
