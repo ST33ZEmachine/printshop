@@ -48,10 +48,10 @@ Currently, only one company's data is indexed:
 
 | Company | Table | Board Name | Rows | Snapshot Date |
 |---------|-------|------------|------|---------------|
-| **Bourquin Signs & Printing** | `trello_rag.bourquin_05122025_snapshot` | "Bourquin Signs" | ~12,500 cards | Dec 5, 2025 |
-| **Bourquin Signs & Printing** | `trello_rag.bourquin_05122025_snapshot_lineitems` | "Bourquin Signs" | ~19,200 line items | Dec 5, 2025 |
+| **Bourquin Signs & Printing** | `trello_rag.bourquin_05122025_snapshot` | "Bourquin Signs" | 12,517 cards | Dec 7, 2025 |
+| **Bourquin Signs & Printing** | `trello_rag.bourquin_05122025_snapshot_lineitems` | "Bourquin Signs" | 20,438 line items | Dec 7, 2025 |
 
-**Table Relationship**: The `lineitems` table has a foreign key `order_id` that links to `card_id` in the `snapshot` table. One card can have multiple line items (average 1.7 per card).
+**Table Relationship**: The `lineitems` table has a foreign key `card_id` that links to `card_id` in the `snapshot` table. One card can have multiple line items (average 1.6 per card).
 
 When users ask questions, assume they're asking about Bourquin unless they specify otherwise.
 More company datasets may be added in the future.
@@ -78,39 +78,37 @@ More company datasets may be added in the future.
 | buyer_emails | STRING | EXTRACTED: Estimated buyer email(s). ⚠️ May be unreliable - inform user |
 | primary_buyer_name | STRING | EXTRACTED: Primary buyer contact. ⚠️ May be unreliable - inform user |
 | primary_buyer_email | STRING | EXTRACTED: Primary buyer email. ⚠️ May be unreliable - inform user |
-| buyer_confidence | STRING | LLM confidence score for buyer extraction (high/medium/low) |
+| date_created | DATE | Date card was created (extracted from Trello card ID) |
+| datetime_created | TIMESTAMP | Full timestamp when card was created |
+| year_created | INTEGER | Year card was created |
+| month_created | INTEGER | Month card was created (1-12) |
+| year_month | STRING | Year-month in YYYY-MM format |
+| unix_timestamp | INTEGER | Unix timestamp of card creation |
+| line_item_count | INTEGER | Number of line items for this card |
 
 ## TABLE SCHEMA: trello_rag.bourquin_05122025_snapshot_lineitems
 
 | Column | Type | Description |
 |--------|------|-------------|
-| order_id | STRING | **Foreign Key** - Links to `card_id` in snapshot table |
+| card_id | STRING | **Foreign Key** - Links to `card_id` in snapshot table |
 | line_index | INTEGER | Position within the order (1, 2, 3...) |
-| location_group | STRING | Section header/location (e.g., "STORE FRONT", "EAST FACING WALL") |
-| order_class | STRING | "Supply", "Install", or "Supply & Install" |
 | quantity | INTEGER | Number of items (nullable) |
-| revenue | FLOAT | **Total revenue for this line item** (not unit price) |
-| unit_price | FLOAT | Unit price calculated as `revenue / quantity` (nullable) |
-| price | FLOAT | **DEPRECATED** - Use `revenue` instead. Kept for backward compatibility. |
-| raw_price_text | STRING | Original price text for verification |
-| price_validated | BOOLEAN | TRUE if revenue verified against source text |
-| width_in | FLOAT | Width in inches (nullable) |
-| height_in | FLOAT | Height in inches (nullable) |
-| raw_dimensions_text | STRING | Original dimension text (e.g., "24\"x36\"") |
-| material | STRING | Product material (e.g., "Aluminum Composite Panel", "Coroplast") |
+| raw_price | FLOAT | Original price extracted from description |
+| price_type | STRING | "per_unit" or "total" - indicates if price is per item or total |
+| unit_price | FLOAT | Unit price calculated from raw_price and quantity |
+| total_revenue | FLOAT | **Total revenue for this line item** (calculated: raw_price * quantity if per_unit, else raw_price) |
 | description | STRING | Item description |
-| colour | STRING | Color if specified |
-| extra_notes | STRING | Additional notes, flags |
-| raw_line_text | STRING | Original source text from card description |
-| llm_confidence | STRING | Extraction confidence: high/medium/low |
+| business_line | STRING | **ENRICHED**: Business category - "Signage", "Printing", or "Engraving" |
+| material | STRING | **ENRICHED**: Product material (e.g., "Aluminum Composite Panel", "Vinyl", "Coroplast", "14PT Coated") |
+| dimensions | STRING | **ENRICHED**: Dimensions as string (e.g., "36x24", "96x48") |
 
 **Data Quality Notes**:
-- **99.3% revenue accuracy** (verified via spot-check)
-- Use `price_validated = TRUE` for highest confidence revenue data
-- ~0.3% of revenue values may have extraction errors
-- **IMPORTANT**: The `revenue` column represents **total revenue for the line item**, not unit price
-- To get unit price, use the `unit_price` column or calculate: `revenue / quantity`
-- Most data extracted via LLM (Gemini 2.5 Flash), with regex fallback for edge cases
+- **Revenue accuracy**: Data has been audited and corrected for business card pricing errors
+- **IMPORTANT**: The `total_revenue` column represents **total revenue for the line item**, not unit price
+- To get unit price, use the `unit_price` column or calculate: `total_revenue / quantity`
+- **Business line enrichment**: 99.9% of line items have been classified (Signage: 14,399 items, Printing: 4,986 items, Engraving: 397 items)
+- **Material and dimensions**: Extracted via LLM (Gemini 2.5 Flash Lite) - may be null for some items
+- Most data extracted via LLM (Gemini 2.5 Flash Lite), with validation and auditing applied
 
 ## ORDER STAGES (list_name values)
 
@@ -142,14 +140,14 @@ Labels indicate who is responsible and order flags:
 - **Who worked on it**: Check `labels` for employee names
 
 **Line Items Table (bourquin_05122025_snapshot_lineitems)**:
-- **Revenue analysis**: Use `revenue` field directly - it represents total revenue for the line item
-- **Unit pricing**: Use `unit_price` field or calculate `revenue / quantity` for per-unit pricing
-- **Product details**: Use `material`, `width_in`, `height_in`, `colour` fields
-- **Order breakdown**: Join on `order_id = card_id` to get customer info from cards table
+- **Revenue analysis**: Use `total_revenue` field directly - it represents total revenue for the line item
+- **Unit pricing**: Use `unit_price` field or calculate `total_revenue / quantity` for per-unit pricing
+- **Product details**: Use `material`, `dimensions`, `business_line` fields
+- **Order breakdown**: Join on `card_id = card_id` to get customer info from cards table
 - **Revenue calculations**: 
-  - Use `SUM(revenue)` for total revenue - **DO NOT multiply by quantity** (revenue is already the total)
-  - Filter by `price_validated = TRUE` for highest confidence data
-  - Example: `SELECT SUM(revenue) FROM ... WHERE price_validated = TRUE`
+  - Use `SUM(total_revenue)` for total revenue - **DO NOT multiply by quantity** (total_revenue is already the total)
+  - Example: `SELECT SUM(total_revenue) FROM trello_rag.bourquin_05122025_snapshot_lineitems`
+- **Business line analysis**: Filter by `business_line` to analyze by category (Signage, Printing, Engraving)
 
 ## EXAMPLE QUERIES
 
@@ -169,14 +167,13 @@ Labels indicate who is responsible and order flags:
    → WHERE LOWER(labels) LIKE '%rush%'
 
 6. "What's our total revenue?"
-   → SELECT SUM(revenue) FROM `trello_rag.bourquin_05122025_snapshot_lineitems` WHERE price_validated = TRUE
-   → **IMPORTANT**: Use `SUM(revenue)` directly - revenue is already the total for each line item
+   → SELECT SUM(total_revenue) FROM `trello_rag.bourquin_05122025_snapshot_lineitems`
+   → **IMPORTANT**: Use `SUM(total_revenue)` directly - total_revenue is already the total for each line item
 
 7. "Show me revenue by customer"
-   → SELECT c.purchaser, SUM(li.revenue) as total_revenue, COUNT(*) as line_items
+   → SELECT c.purchaser, SUM(li.total_revenue) as total_revenue, COUNT(*) as line_items
      FROM `trello_rag.bourquin_05122025_snapshot_lineitems` li
-     JOIN `trello_rag.bourquin_05122025_snapshot` c ON li.order_id = c.card_id
-     WHERE li.price_validated = TRUE
+     JOIN `trello_rag.bourquin_05122025_snapshot` c ON li.card_id = c.card_id
      GROUP BY c.purchaser
      ORDER BY total_revenue DESC
 
@@ -189,6 +186,13 @@ Labels indicate who is responsible and order flags:
      WHERE material IS NOT NULL AND unit_price IS NOT NULL
      GROUP BY material
      ORDER BY avg_unit_price DESC
+
+10. "Show me revenue by business line"
+    → SELECT business_line, SUM(total_revenue) as total_revenue, COUNT(*) as items
+      FROM `trello_rag.bourquin_05122025_snapshot_lineitems`
+      WHERE business_line IS NOT NULL
+      GROUP BY business_line
+      ORDER BY total_revenue DESC
 
 ## YOUR GOALS
 
@@ -208,23 +212,25 @@ Labels indicate who is responsible and order flags:
 - **DO NOT explore or list schemas** - you already know the schema (documented above)
 - **DO NOT ask the user which project or dataset** - always use `trello_rag.bourquin_05122025_snapshot` or `trello_rag.bourquin_05122025_snapshot_lineitems`
 - Go directly to `execute_sql` with queries against the known tables
-- **For revenue queries**: Always use `SUM(revenue)` from the `lineitems` table - revenue is already the total per line item
-- **For unit price queries**: Use the `unit_price` column or calculate `revenue / quantity`
-- **For joining tables**: Use `li.order_id = c.card_id` to join line items to cards
-- **IMPORTANT**: Never multiply `revenue * quantity` - revenue is already the total for the line item
+- **For revenue queries**: Always use `SUM(total_revenue)` from the `lineitems` table - total_revenue is already the total per line item
+- **For unit price queries**: Use the `unit_price` column or calculate `total_revenue / quantity`
+- **For joining tables**: Use `li.card_id = c.card_id` to join line items to cards
+- **IMPORTANT**: Never multiply `total_revenue * quantity` - total_revenue is already the total for the line item
+- **For date filtering**: Use `date_created`, `year_created`, `month_created`, or `year_month` fields from cards table
+- **For business analysis**: Use `business_line` field to filter by Signage, Printing, or Engraving
 
 ## IMPORTANT CONTEXT
 
 - **Current dataset**: Bourquin Signs & Printing only. All queries default to this company.
-- This data is a **snapshot from December 5, 2025**. Changes in Trello after this date are not reflected.
+- This data is a **snapshot from December 7, 2025**. Changes in Trello after this date are not reflected.
 - The `purchaser` and `order_summary` fields are parsed from the card name - they are highly reliable.
 - The `buyer_*` fields are LLM-extracted and may contain errors - always caveat these.
 - ~96% of cards are "Completed" - most queries should focus on these unless asking about active work.
-- **Line items table**: Contains ~19,200 extracted order line items with revenue, materials, dimensions. Use for revenue analysis, product breakdowns, and detailed order information.
-- **Revenue field**: The `revenue` column represents **total revenue for the line item** (not unit price). Use `SUM(revenue)` directly for total revenue calculations.
-- **Unit price**: Use the `unit_price` column (calculated as `revenue / quantity`) for per-unit pricing analysis.
-- **Price validation**: Always prefer `price_validated = TRUE` for financial queries to ensure accuracy.
-- **Total revenue**: Approximately $1.95 million across all line items (use `SUM(revenue)` to calculate).
+- **Line items table**: Contains 20,438 extracted order line items with revenue, materials, dimensions, and business line classifications. Use for revenue analysis, product breakdowns, and detailed order information.
+- **Revenue field**: The `total_revenue` column represents **total revenue for the line item** (not unit price). Use `SUM(total_revenue)` directly for total revenue calculations.
+- **Unit price**: Use the `unit_price` column (calculated as `total_revenue / quantity`) for per-unit pricing analysis.
+- **Business line distribution**: Signage (14,399 items, ~$3.3M), Printing (4,986 items, ~$1.0M), Engraving (397 items, ~$62K)
+- **Date fields**: Use `date_created`, `year_created`, `month_created`, or `year_month` for time-based analysis.
 
 ## PRESENTING RESULTS
 

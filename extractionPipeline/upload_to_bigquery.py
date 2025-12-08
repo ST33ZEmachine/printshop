@@ -1,10 +1,13 @@
+#!/usr/bin/env python3
 """
 Upload Enriched Trello Data to BigQuery
 
-This script flattens the enriched Trello JSON and uploads it to BigQuery.
+Flattens the enriched Trello JSON into two tables:
+- bourquin_05122025_snapshot (cards)
+- bourquin_05122025_snapshot_lineitems (line items)
 
 Usage:
-    python upload_to_bigquery.py --input ENRICHED_JSON [--dataset DATASET] [--table TABLE]
+    python upload_to_bigquery.py --input LyB2G53h_cards_extracted.json [--dataset DATASET]
 """
 
 import argparse
@@ -27,106 +30,131 @@ logger = logging.getLogger(__name__)
 # Configuration
 PROJECT_ID = os.environ.get("BIGQUERY_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
 DEFAULT_DATASET = "trello_rag"
-DEFAULT_TABLE = "trello_cards_enriched"
+CARDS_TABLE = "bourquin_05122025_snapshot"
+LINEITEMS_TABLE = "bourquin_05122025_snapshot_lineitems"
 
 
-def flatten_card(card: Dict[str, Any], lists_by_id: Dict[str, str], board_id: str, board_name: str) -> Dict[str, Any]:
-    """
-    Flatten a single card into a BigQuery-compatible row.
-    
-    Args:
-        card: Card dictionary with enriched fields
-        lists_by_id: Mapping of list ID to list name
-        board_id: Board ID
-        board_name: Board name
-        
-    Returns:
-        Flattened dictionary ready for BigQuery
-    """
-    list_id = card.get("idList")
-    list_name = lists_by_id.get(list_id, "")
-    
-    # Card labels: array of objects with "name"
+def create_cards_schema() -> List[bigquery.SchemaField]:
+    """Create BigQuery schema for cards table."""
+    return [
+        bigquery.SchemaField("card_id", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("name", "STRING"),
+        bigquery.SchemaField("desc", "STRING"),
+        bigquery.SchemaField("labels", "STRING"),  # Comma-separated
+        bigquery.SchemaField("closed", "BOOLEAN"),
+        bigquery.SchemaField("dateLastActivity", "TIMESTAMP"),
+        # Enriched fields - title parsing
+        bigquery.SchemaField("purchaser", "STRING"),
+        bigquery.SchemaField("order_summary", "STRING"),
+        # Enriched fields - buyer extraction
+        bigquery.SchemaField("primary_buyer_name", "STRING"),
+        bigquery.SchemaField("primary_buyer_email", "STRING"),
+        # Date fields
+        bigquery.SchemaField("date_created", "DATE"),
+        bigquery.SchemaField("datetime_created", "TIMESTAMP"),
+        bigquery.SchemaField("year_created", "INTEGER"),
+        bigquery.SchemaField("month_created", "INTEGER"),
+        bigquery.SchemaField("year_month", "STRING"),
+        bigquery.SchemaField("unix_timestamp", "INTEGER"),
+        # Summary
+        bigquery.SchemaField("line_item_count", "INTEGER"),
+    ]
+
+
+def create_lineitems_schema() -> List[bigquery.SchemaField]:
+    """Create BigQuery schema for line items table."""
+    return [
+        bigquery.SchemaField("card_id", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("line_index", "INTEGER", mode="REQUIRED"),
+        bigquery.SchemaField("quantity", "INTEGER"),
+        bigquery.SchemaField("raw_price", "FLOAT"),
+        bigquery.SchemaField("price_type", "STRING"),  # "per_unit" or "total"
+        bigquery.SchemaField("unit_price", "FLOAT"),
+        bigquery.SchemaField("total_revenue", "FLOAT"),
+        bigquery.SchemaField("description", "STRING"),
+        # Enrichment fields
+        bigquery.SchemaField("business_line", "STRING"),  # "Signage", "Printing", "Engraving"
+        bigquery.SchemaField("material", "STRING"),
+        bigquery.SchemaField("dimensions", "STRING"),
+    ]
+
+
+def flatten_card(card: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten a card for BigQuery upload."""
+    # Process labels
     label_names = []
     for lbl in card.get("labels", []):
-        name = (lbl.get("name") or "").strip()
+        if isinstance(lbl, dict):
+            name = (lbl.get("name") or "").strip()
+        elif isinstance(lbl, str):
+            name = lbl.strip()
+        else:
+            name = str(lbl).strip()
         if name:
             label_names.append(name)
-    labels_str = ", ".join(label_names)
+    labels_str = ", ".join(label_names) if label_names else None
     
-    # Extract buyer names/emails as comma-separated strings
-    buyer_names = card.get("buyer_names", [])
-    buyer_emails = card.get("buyer_emails", [])
+    # Parse dateLastActivity - keep as ISO string for BigQuery
+    date_last_activity = card.get("dateLastActivity")
+    
+    # Parse datetime_created - keep as ISO string for BigQuery
+    datetime_created = card.get("datetime_created")
+    
+    # Parse date_created - keep as YYYY-MM-DD string for BigQuery
+    date_created = card.get("date_created")
     
     return {
         "card_id": card.get("id"),
-        "board_id": board_id,
-        "board_name": board_name,
-        "list_id": list_id,
-        "list_name": list_name,
         "name": card.get("name"),
         "desc": card.get("desc"),
         "labels": labels_str,
         "closed": card.get("closed"),
-        "due": card.get("due"),
-        "dateLastActivity": card.get("dateLastActivity"),
-        "shortUrl": card.get("shortUrl"),
-        # New enriched fields - title parsing
+        "dateLastActivity": date_last_activity,  # ISO string
         "purchaser": card.get("purchaser"),
         "order_summary": card.get("order_summary"),
-        # New enriched fields - LLM extraction
-        "buyer_names": ", ".join(buyer_names) if buyer_names else None,
-        "buyer_emails": ", ".join(buyer_emails) if buyer_emails else None,
         "primary_buyer_name": card.get("primary_buyer_name"),
         "primary_buyer_email": card.get("primary_buyer_email"),
-        "buyer_confidence": card.get("buyer_confidence"),
+        "date_created": date_created,  # YYYY-MM-DD string
+        "datetime_created": datetime_created,  # ISO string
+        "year_created": card.get("year_created"),
+        "month_created": card.get("month_created"),
+        "year_month": card.get("year_month"),
+        "unix_timestamp": card.get("unix_timestamp"),
+        "line_item_count": card.get("line_item_count", 0),
     }
 
 
-def create_table_schema() -> List[bigquery.SchemaField]:
-    """Create BigQuery table schema."""
-    return [
-        bigquery.SchemaField("card_id", "STRING", mode="REQUIRED"),
-        bigquery.SchemaField("board_id", "STRING"),
-        bigquery.SchemaField("board_name", "STRING"),
-        bigquery.SchemaField("list_id", "STRING"),
-        bigquery.SchemaField("list_name", "STRING"),
-        bigquery.SchemaField("name", "STRING"),
-        bigquery.SchemaField("desc", "STRING"),
-        bigquery.SchemaField("labels", "STRING"),
-        bigquery.SchemaField("closed", "BOOLEAN"),
-        bigquery.SchemaField("due", "TIMESTAMP"),
-        bigquery.SchemaField("dateLastActivity", "TIMESTAMP"),
-        bigquery.SchemaField("shortUrl", "STRING"),
-        # Enriched fields - title parsing
-        bigquery.SchemaField("purchaser", "STRING"),
-        bigquery.SchemaField("order_summary", "STRING"),
-        # Enriched fields - LLM extraction
-        bigquery.SchemaField("buyer_names", "STRING"),
-        bigquery.SchemaField("buyer_emails", "STRING"),
-        bigquery.SchemaField("primary_buyer_name", "STRING"),
-        bigquery.SchemaField("primary_buyer_email", "STRING"),
-        bigquery.SchemaField("buyer_confidence", "STRING"),
-    ]
+def flatten_line_items(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flatten all line items from all cards."""
+    line_items = []
+    for card in cards:
+        card_id = card.get("id")
+        for item in card.get("line_items", []):
+            line_items.append({
+                "card_id": card_id,
+                "line_index": item.get("line_index"),
+                "quantity": item.get("quantity"),
+                "raw_price": item.get("raw_price"),
+                "price_type": item.get("price_type"),
+                "unit_price": item.get("unit_price"),
+                "total_revenue": item.get("total_revenue"),
+                "description": item.get("description"),
+                "business_line": item.get("business_line"),
+                "material": item.get("material"),
+                "dimensions": item.get("dimensions"),
+            })
+    return line_items
 
 
-def upload_to_bigquery(
+def upload_table(
     rows: List[Dict[str, Any]],
     project_id: str,
     dataset_id: str,
     table_id: str,
+    schema: List[bigquery.SchemaField],
     replace: bool = True
 ) -> None:
-    """
-    Upload rows to BigQuery table.
-    
-    Args:
-        rows: List of flattened card dictionaries
-        project_id: GCP project ID
-        dataset_id: BigQuery dataset ID
-        table_id: BigQuery table ID
-        replace: If True, replace table; if False, append
-    """
+    """Upload rows to BigQuery table."""
     client = bigquery.Client(project=project_id)
     
     table_ref = f"{project_id}.{dataset_id}.{table_id}"
@@ -141,26 +169,22 @@ def upload_to_bigquery(
         client.create_dataset(dataset_ref)
         logger.info(f"Created dataset {dataset_id}")
     
-    # Create table with schema
-    schema = create_table_schema()
-    table = bigquery.Table(table_ref, schema=schema)
-    
+    # Delete existing table if replacing
     if replace:
-        # Delete existing table if it exists
         try:
             client.delete_table(table_ref)
             logger.info(f"Deleted existing table {table_ref}")
         except Exception:
             pass
     
-    # Create table
+    # Create table with schema
+    table = bigquery.Table(table_ref, schema=schema)
     table = client.create_table(table, exists_ok=True)
     logger.info(f"Table {table_ref} ready")
     
-    # Insert rows
+    # Insert rows in chunks
     logger.info(f"Uploading {len(rows)} rows to {table_ref}...")
     
-    # BigQuery insert in chunks of 10000
     chunk_size = 10000
     total_errors = []
     
@@ -175,6 +199,7 @@ def upload_to_bigquery(
     
     if total_errors:
         logger.error(f"Total errors: {len(total_errors)}")
+        raise Exception(f"Upload failed with {len(total_errors)} errors")
     else:
         logger.info(f"Successfully uploaded all {len(rows)} rows")
 
@@ -196,15 +221,9 @@ def main():
         help=f"BigQuery dataset ID (default: {DEFAULT_DATASET})"
     )
     parser.add_argument(
-        "--table",
-        type=str,
-        default=DEFAULT_TABLE,
-        help=f"BigQuery table ID (default: {DEFAULT_TABLE})"
-    )
-    parser.add_argument(
         "--append",
         action="store_true",
-        help="Append to existing table instead of replacing"
+        help="Append to existing tables instead of replacing"
     )
     
     args = parser.parse_args()
@@ -220,56 +239,75 @@ def main():
         logger.error(f"Input file not found: {input_path}")
         sys.exit(1)
     
+    logger.info("=" * 60)
+    logger.info("BIGQUERY UPLOAD")
+    logger.info("=" * 60)
+    logger.info(f"Input: {input_path}")
+    logger.info(f"Project: {PROJECT_ID}")
+    logger.info(f"Dataset: {args.dataset}")
+    logger.info(f"Cards table: {CARDS_TABLE}")
+    logger.info(f"Line items table: {LINEITEMS_TABLE}")
+    logger.info(f"Mode: {'Append' if args.append else 'Replace'}")
+    logger.info("=" * 60)
+    
     logger.info(f"Loading {input_path}...")
     with open(input_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     
-    # Get board info
-    board_id = data.get("id", "")
-    board_name = data.get("name", "")
-    
-    # Map list_id -> list_name
-    lists_by_id = {
-        lst["id"]: lst.get("name", "")
-        for lst in data.get("lists", [])
-    }
+    cards = data.get("cards", [])
+    logger.info(f"Found {len(cards):,} cards")
     
     # Flatten cards
-    cards = data.get("cards", [])
-    logger.info(f"Flattening {len(cards)} cards...")
-    
-    rows = []
+    logger.info("Flattening cards...")
+    card_rows = []
     for card in cards:
         try:
-            row = flatten_card(card, lists_by_id, board_id, board_name)
-            rows.append(row)
+            row = flatten_card(card)
+            card_rows.append(row)
         except Exception as e:
             logger.warning(f"Failed to flatten card {card.get('id')}: {e}")
     
-    logger.info(f"Prepared {len(rows)} rows for upload")
+    logger.info(f"Prepared {len(card_rows):,} card rows")
     
-    # Upload to BigQuery
-    logger.info(f"Project: {PROJECT_ID}")
-    logger.info(f"Dataset: {args.dataset}")
-    logger.info(f"Table: {args.table}")
-    logger.info(f"Mode: {'Append' if args.append else 'Replace'}")
+    # Flatten line items
+    logger.info("Flattening line items...")
+    line_item_rows = flatten_line_items(cards)
+    logger.info(f"Prepared {len(line_item_rows):,} line item rows")
     
-    upload_to_bigquery(
-        rows,
+    # Upload cards table
+    logger.info("")
+    logger.info("Uploading cards table...")
+    upload_table(
+        card_rows,
         PROJECT_ID,
         args.dataset,
-        args.table,
+        CARDS_TABLE,
+        create_cards_schema(),
         replace=not args.append
     )
     
-    logger.info("="*60)
+    # Upload line items table
+    logger.info("")
+    logger.info("Uploading line items table...")
+    upload_table(
+        line_item_rows,
+        PROJECT_ID,
+        args.dataset,
+        LINEITEMS_TABLE,
+        create_lineitems_schema(),
+        replace=not args.append
+    )
+    
+    logger.info("")
+    logger.info("=" * 60)
     logger.info("UPLOAD COMPLETE")
-    logger.info("="*60)
-    logger.info(f"Table: {PROJECT_ID}.{args.dataset}.{args.table}")
-    logger.info(f"Rows uploaded: {len(rows)}")
-    logger.info("="*60)
+    logger.info("=" * 60)
+    logger.info(f"Cards table: {PROJECT_ID}.{args.dataset}.{CARDS_TABLE}")
+    logger.info(f"  Rows: {len(card_rows):,}")
+    logger.info(f"Line items table: {PROJECT_ID}.{args.dataset}.{LINEITEMS_TABLE}")
+    logger.info(f"  Rows: {len(line_item_rows):,}")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":
     main()
-
