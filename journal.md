@@ -552,3 +552,21 @@ extractionPipeline/
 
 ---
 
+## 2025-12-09
+
+### What we did
+- Added dashboard API endpoints in `backend/main.py` (revenue trends, business line split, top customers, order status, material breakdown) and fixed order status to use `closed` status.
+- Built a React + shadcn dashboard under `frontend/dashboard` with Recharts; hosted at `/dashboard` on Firebase (Vite base set to `/dashboard/dist/`).
+- Updated Firebase rewrites to serve built assets only and ignore dev sources; fixed MIME issues.
+- Deployed backend to Cloud Run via `cloudbuild.yaml` (image `gcr.io/maxprint-479504/trello-orders-api:latest`) and confirmed dashboard loads data from the new endpoints.
+
+### Security upgrade parking lot
+- Disable unauthenticated Cloud Run access and require auth (IAM/JWT/IAP/Cloud Endpoints).
+- Add rate limiting/throttling and request logging/alerting on dashboard APIs.
+- Move config/secrets to Secret Manager; avoid any plaintext envs in deploys.
+- Consider Cloud Armor/IAP in front of Cloud Run; restrict CORS to known hosts only.
+- Set budgets/quotas and add monitoring on BigQuery usage and API errors.
+- Add dependency scanning (Dependabot/Snyk) and periodic vulnerability checks.
+
+---
+
