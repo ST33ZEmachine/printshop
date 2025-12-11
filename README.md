@@ -104,24 +104,32 @@ firebase serve --only hosting
 
 Open `http://localhost:3000` in your browser.
 
-### 2. Deploy Backend to Cloud Run (gcloud build + run)
+### 2. Deploy Backend to Cloud Run
 
-Backend is built from repo root via `cloudbuild.yaml` (uses `backend/Dockerfile`).
+#### Build and Push Docker Image
 
 ```bash
-# From repo root
-gcloud builds submit . --config cloudbuild.yaml
+# From project root
+gcloud builds submit --tag gcr.io/PROJECT_ID/trello-orders-api
+```
 
-# Deploy (update project/region as needed)
+#### Deploy to Cloud Run
+
+```bash
 gcloud run deploy trello-orders-api \
-  --image gcr.io/PROJECT_ID/trello-orders-api:latest \
+  --image gcr.io/PROJECT_ID/trello-orders-api \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars BIGQUERY_PROJECT=PROJECT_ID,GOOGLE_CLOUD_PROJECT=PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1
+  --set-env-vars BIGQUERY_PROJECT=PROJECT_ID,GOOGLE_CLOUD_PROJECT=PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1,GEMINI_MODEL=gemini-2.0-flash-exp \
+  --memory 2Gi \
+  --cpu 2 \
+  --timeout 300 \
+  --max-instances 10 \
+  --service-account YOUR_SERVICE_ACCOUNT@PROJECT_ID.iam.gserviceaccount.com
 ```
 
-**Optional hardening**: remove `--allow-unauthenticated` and front with IAM/JWT/IAP; tighten CORS to only your hosting domains.
+**Important**: Replace `PROJECT_ID` and `YOUR_SERVICE_ACCOUNT` with your actual values.
 
 #### Required IAM Roles for Service Account
 
@@ -131,29 +139,52 @@ gcloud run deploy trello-orders-api \
 
 #### Get Service URL
 
+After deployment, note the service URL:
 ```bash
 gcloud run services describe trello-orders-api --region us-central1 --format 'value(status.url)'
 ```
 
-### 3. Build & Deploy Frontend (Chat + Dashboard) to Firebase Hosting
+### 3. Deploy Frontend to Firebase Hosting
 
-Dashboard lives at `/dashboard` and is built with Vite (base `/dashboard/dist/`). API URL defaults to deployed Cloud Run; override with `VITE_API_URL` when building.
+#### Configure Firebase
 
 ```bash
-cd frontend/dashboard
-export VITE_API_URL="https://<your-cloud-run-service>.run.app"   # optional if different
-npm install
-npm run build
+cd frontend
 
-cd ..
+# Update .firebaserc with your Firebase project ID
+# Update script.js with your Cloud Run service URL
+```
+
+#### Deploy
+
+```bash
 firebase deploy --only hosting
 ```
 
-Hosting rewrites serve `dashboard/dist/index.html` for `/dashboard` and `/dashboard/` while leaving assets under `/dashboard/dist/assets/` intact.
+Your app will be available at:
+- `https://PROJECT_ID.web.app`
+- `https://PROJECT_ID.firebaseapp.com`
 
 ### 4. Update CORS in Backend
 
-Backend CORS already allows Firebase hosting domains and localhost. If you change hosting domains, update `allow_origins` in `backend/main.py` and redeploy.
+After deploying the frontend, update the backend CORS settings to allow your Firebase domain:
+
+Edit `backend/main.py`:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://PROJECT_ID.web.app",
+        "https://PROJECT_ID.firebaseapp.com"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+Then rebuild and redeploy the backend.
 
 ## Environment Variables
 

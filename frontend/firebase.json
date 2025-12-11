@@ -4,19 +4,9 @@
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**",
-      "dashboard/src/**",
-      "dashboard/index.html"
+      "**/node_modules/**"
     ],
     "rewrites": [
-      {
-        "source": "/dashboard",
-        "destination": "/dashboard/dist/index.html"
-      },
-      {
-        "source": "/dashboard/",
-        "destination": "/dashboard/dist/index.html"
-      },
       {
         "source": "**",
         "destination": "/index.html"

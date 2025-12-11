@@ -7,15 +7,12 @@ HTTP API endpoint for chat interactions with session management.
 
 import logging
 import os
-import time
-from typing import Dict, Optional, List, Any
-from datetime import datetime, timedelta
+from typing import Dict, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from google.cloud import bigquery
 from integrations.trello.config import TrelloSettings
 from integrations.trello.publisher import LoggingTrelloEventPublisher
 from integrations.trello.router import get_trello_router
@@ -100,171 +97,6 @@ class ChatResponse(BaseModel):
 
 # In-memory session tracking (optional - for monitoring)
 active_sessions: Dict[str, bool] = {}
-
-# BigQuery configuration
-DATASET_ID = "trello_rag"
-CARDS_TABLE = "bourquin_05122025_snapshot"
-LINEITEMS_TABLE = "bourquin_05122025_snapshot_lineitems"
-
-# Initialize BigQuery client
-bigquery_client = bigquery.Client(project=PROJECT_ID)
-
-# Simple in-memory cache for query results (5 minute TTL)
-query_cache: Dict[str, tuple[Any, float]] = {}
-CACHE_TTL = 300  # 5 minutes
-
-
-def get_cached_or_query(cache_key: str, query_func):
-    """Get result from cache or execute query function."""
-    now = time.time()
-    if cache_key in query_cache:
-        result, timestamp = query_cache[cache_key]
-        if now - timestamp < CACHE_TTL:
-            logger.debug(f"Cache hit for {cache_key}")
-            return result
-    
-    # Cache miss or expired, execute query
-    logger.debug(f"Cache miss for {cache_key}, executing query")
-    result = query_func()
-    query_cache[cache_key] = (result, now)
-    return result
-
-
-def query_monthly_revenue_by_business_line() -> List[Dict[str, Any]]:
-    """Query monthly revenue grouped by business line."""
-    query = f"""
-    SELECT 
-        c.year_month,
-        li.business_line,
-        SUM(li.total_revenue) as revenue,
-        COUNT(DISTINCT li.card_id) as order_count
-    FROM `{PROJECT_ID}.{DATASET_ID}.{LINEITEMS_TABLE}` li
-    JOIN `{PROJECT_ID}.{DATASET_ID}.{CARDS_TABLE}` c ON li.card_id = c.card_id
-    WHERE li.business_line IS NOT NULL 
-      AND li.total_revenue IS NOT NULL
-      AND c.year_month IS NOT NULL
-    GROUP BY c.year_month, li.business_line
-    ORDER BY c.year_month DESC, li.business_line
-    """
-    
-    results = bigquery_client.query(query).result()
-    return [
-        {
-            "year_month": row.year_month,
-            "business_line": row.business_line,
-            "revenue": float(row.revenue) if row.revenue else 0.0,
-            "order_count": row.order_count
-        }
-        for row in results
-    ]
-
-
-def query_top_customers(limit: int = 20) -> List[Dict[str, Any]]:
-    """Query top customers by total revenue."""
-    query = f"""
-    SELECT 
-        c.purchaser,
-        SUM(li.total_revenue) as total_revenue,
-        COUNT(DISTINCT li.card_id) as order_count,
-        COUNT(li.card_id) as line_item_count
-    FROM `{PROJECT_ID}.{DATASET_ID}.{LINEITEMS_TABLE}` li
-    JOIN `{PROJECT_ID}.{DATASET_ID}.{CARDS_TABLE}` c ON li.card_id = c.card_id
-    WHERE c.purchaser IS NOT NULL 
-      AND c.purchaser != ''
-      AND li.total_revenue IS NOT NULL
-    GROUP BY c.purchaser
-    ORDER BY total_revenue DESC
-    LIMIT {limit}
-    """
-    
-    results = bigquery_client.query(query).result()
-    return [
-        {
-            "purchaser": row.purchaser,
-            "total_revenue": float(row.total_revenue) if row.total_revenue else 0.0,
-            "order_count": row.order_count,
-            "line_item_count": row.line_item_count
-        }
-        for row in results
-    ]
-
-
-def query_revenue_trends() -> List[Dict[str, Any]]:
-    """Query revenue trends over time (monthly)."""
-    query = f"""
-    SELECT 
-        c.year_month,
-        SUM(li.total_revenue) as total_revenue,
-        COUNT(DISTINCT li.card_id) as order_count,
-        COUNT(li.card_id) as line_item_count
-    FROM `{PROJECT_ID}.{DATASET_ID}.{LINEITEMS_TABLE}` li
-    JOIN `{PROJECT_ID}.{DATASET_ID}.{CARDS_TABLE}` c ON li.card_id = c.card_id
-    WHERE li.total_revenue IS NOT NULL
-      AND c.year_month IS NOT NULL
-    GROUP BY c.year_month
-    ORDER BY c.year_month DESC
-    """
-    
-    results = bigquery_client.query(query).result()
-    return [
-        {
-            "year_month": row.year_month,
-            "total_revenue": float(row.total_revenue) if row.total_revenue else 0.0,
-            "order_count": row.order_count,
-            "line_item_count": row.line_item_count
-        }
-        for row in results
-    ]
-
-
-def query_order_status() -> List[Dict[str, Any]]:
-    """Query order counts by status (using closed flag as proxy)."""
-    query = f"""
-    SELECT 
-        IFNULL(CAST(closed AS STRING), 'unknown') AS status,
-        COUNT(*) AS order_count
-    FROM `{PROJECT_ID}.{DATASET_ID}.{CARDS_TABLE}`
-    GROUP BY status
-    ORDER BY order_count DESC
-    """
-    
-    results = bigquery_client.query(query).result()
-    return [
-        {
-            "status": row.status,
-            "order_count": row.order_count
-        }
-        for row in results
-    ]
-
-
-def query_material_breakdown(limit: int = 20) -> List[Dict[str, Any]]:
-    """Query revenue breakdown by material type."""
-    query = f"""
-    SELECT 
-        li.material,
-        SUM(li.total_revenue) as total_revenue,
-        COUNT(DISTINCT li.card_id) as order_count,
-        COUNT(li.card_id) as line_item_count
-    FROM `{PROJECT_ID}.{DATASET_ID}.{LINEITEMS_TABLE}` li
-    WHERE li.material IS NOT NULL 
-      AND li.material != ''
-      AND li.total_revenue IS NOT NULL
-    GROUP BY li.material
-    ORDER BY total_revenue DESC
-    LIMIT {limit}
-    """
-    
-    results = bigquery_client.query(query).result()
-    return [
-        {
-            "material": row.material,
-            "total_revenue": float(row.total_revenue) if row.total_revenue else 0.0,
-            "order_count": row.order_count,
-            "line_item_count": row.line_item_count
-        }
-        for row in results
-    ]
 
 # Trello webhook integration
 try:
@@ -385,79 +217,6 @@ async def list_sessions():
         "active_sessions": list(active_sessions.keys()),
         "count": len(active_sessions)
     }
-
-
-# Dashboard API endpoints
-@app.get("/api/dashboard/monthly-revenue-by-business-line")
-async def get_monthly_revenue_by_business_line():
-    """Get monthly revenue grouped by business line."""
-    try:
-        data = get_cached_or_query(
-            "monthly_revenue_by_business_line",
-            query_monthly_revenue_by_business_line
-        )
-        return {"data": data}
-    except Exception as e:
-        logger.exception(f"Error querying monthly revenue by business line: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/dashboard/top-customers")
-async def get_top_customers(limit: int = 20):
-    """Get top customers by revenue."""
-    try:
-        cache_key = f"top_customers_{limit}"
-        data = get_cached_or_query(
-            cache_key,
-            lambda: query_top_customers(limit)
-        )
-        return {"data": data}
-    except Exception as e:
-        logger.exception(f"Error querying top customers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/dashboard/revenue-trends")
-async def get_revenue_trends():
-    """Get revenue trends over time."""
-    try:
-        data = get_cached_or_query(
-            "revenue_trends",
-            query_revenue_trends
-        )
-        return {"data": data}
-    except Exception as e:
-        logger.exception(f"Error querying revenue trends: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/dashboard/order-status")
-async def get_order_status():
-    """Get order counts by status."""
-    try:
-        data = get_cached_or_query(
-            "order_status",
-            query_order_status
-        )
-        return {"data": data}
-    except Exception as e:
-        logger.exception(f"Error querying order status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/dashboard/material-breakdown")
-async def get_material_breakdown(limit: int = 20):
-    """Get revenue breakdown by material type."""
-    try:
-        cache_key = f"material_breakdown_{limit}"
-        data = get_cached_or_query(
-            cache_key,
-            lambda: query_material_breakdown(limit)
-        )
-        return {"data": data}
-    except Exception as e:
-        logger.exception(f"Error querying material breakdown: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

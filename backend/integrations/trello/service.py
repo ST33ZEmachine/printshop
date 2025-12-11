@@ -56,3 +56,4 @@ class TrelloService:
         response = self.client.delete(f"/webhooks/{webhook_id}", params=self._auth_params())
         response.raise_for_status()
         logger.info("Deleted Trello webhook", extra={"webhook_id": webhook_id})
+

@@ -65,3 +65,4 @@ def get_trello_router(publisher: TrelloEventPublisher) -> APIRouter:
         )
 
     return router
+

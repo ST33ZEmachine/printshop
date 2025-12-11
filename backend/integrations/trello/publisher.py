@@ -34,3 +34,4 @@ class LoggingTrelloEventPublisher:
             "idempotency_key": action.id,
         }
         logger.info(json.dumps(log_record))
+
