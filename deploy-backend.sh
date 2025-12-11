@@ -31,7 +31,7 @@ gcloud run deploy ${SERVICE_NAME} \
   --project ${PROJECT_ID} \
   --service-account maxprint-agent-readonly@${PROJECT_ID}.iam.gserviceaccount.com \
   --allow-unauthenticated \
-  --set-env-vars BIGQUERY_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GEMINI_MODEL=gemini-2.0-flash-exp,GOOGLE_GENAI_USE_VERTEXAI=true \
+  --set-env-vars BIGQUERY_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash},GOOGLE_GENAI_USE_VERTEXAI=true \
   --memory 2Gi \
   --cpu 2 \
   --timeout 300 \

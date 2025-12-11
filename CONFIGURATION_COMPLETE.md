@@ -124,3 +124,4 @@ If your Firebase project uses a different GCP project than `maxprint-479504`:
 1. Update `deploy-backend.sh` with the correct project ID
 2. Or create a Cloud Run service in the Firebase project's GCP project
 
+

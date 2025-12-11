@@ -81,6 +81,20 @@ Optional:
 - `GEMINI_MODEL`: Gemini model to use (default: gemini-2.0-flash-exp)
 - `APP_NAME`: Application name for session management (default: trello_orders_chat)
 - `PORT`: Server port (default: 8080)
+- `TRELLO_KEY`: Trello API key (required for webhook integration)
+- `TRELLO_TOKEN`: Trello API token (required for webhook integration)
+- `TRELLO_WEBHOOK_CALLBACK_URL`: Public callback URL for Trello webhooks
+- `TRELLO_TEST_BOARD_ID`: Test/archived board id for webhook registration
+
+### Trello webhook utility
+
+Register/list/delete webhooks for the test board:
+```bash
+cd backend
+python trello_webhook_cli.py register  # uses env defaults
+python trello_webhook_cli.py list
+python trello_webhook_cli.py delete <webhook_id>
+```
 
 ### Service Account
 

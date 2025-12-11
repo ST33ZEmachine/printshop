@@ -8,6 +8,16 @@
 // Configuration - Cloud Run service URL
 const API_URL = 'https://trello-orders-api-kspii3btya-uc.a.run.app';
 
+// Firebase Analytics Measurement ID
+const GA_MEASUREMENT_ID = 'G-W5KP11V8Z6';
+
+// Helper function to track analytics events
+function trackEvent(eventName, eventParams = {}) {
+    if (typeof gtag !== 'undefined') {
+        gtag('event', eventName, eventParams);
+    }
+}
+
 // Generate or retrieve session ID
 function getSessionId() {
     let sessionId = localStorage.getItem('chat_session_id');
@@ -21,6 +31,12 @@ function getSessionId() {
 // Initialize
 const sessionId = getSessionId();
 document.getElementById('session-id').textContent = sessionId;
+
+// Track page view on load
+trackEvent('page_view', {
+    'session_id': sessionId,
+    'page_title': 'Trello Orders Chat'
+});
 
 const chatMessages = document.getElementById('chat-messages');
 const messageInput = document.getElementById('message-input');
@@ -103,6 +119,12 @@ async function sendMessage(message) {
 
     // Add user message to chat
     addMessage(message, true);
+    
+    // Track message sent
+    trackEvent('message_sent', {
+        'session_id': sessionId,
+        'message_length': message.length
+    });
 
     // Clear input
     messageInput.value = '';
@@ -126,11 +148,24 @@ async function sendMessage(message) {
 
         const data = await response.json();
         addMessage(data.reply || 'No response received');
+        
+        // Track successful response
+        trackEvent('message_response_received', {
+            'session_id': sessionId,
+            'response_length': (data.reply || '').length
+        });
 
     } catch (error) {
         console.error('Error sending message:', error);
         showError(`Error: ${error.message}`);
         addMessage('Sorry, I encountered an error. Please try again.');
+        
+        // Track errors
+        trackEvent('error', {
+            'error_message': error.message,
+            'session_id': sessionId,
+            'error_type': 'api_error'
+        });
     } finally {
         // Re-enable input
         messageInput.disabled = false;

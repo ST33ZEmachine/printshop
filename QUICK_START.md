@@ -117,3 +117,4 @@ Check the detailed guides:
 - `backend/README.md` - Backend-specific guide
 - `frontend/README.md` - Frontend-specific guide
 
+
