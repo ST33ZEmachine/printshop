@@ -12,6 +12,8 @@ This directory contains historical and one-time setup documentation that is no l
 - **IMPROVEMENTS.md** - Historical improvements log
 - **AUDIT.md** - Code audit documentation (historical)
 - **journal.md** - Development journal
+- **WEBHOOK_PIPELINE_PLAN.md** - Initial webhook planning document (superseded by WEBHOOK_ARCHITECTURE_FINAL.md)
+- **WEBHOOK_IMPLEMENTATION_PLAN.md** - Webhook implementation checklist (now complete)
 - **flatten_trello_board.py** - One-time utility script for converting Trello JSON to CSV
 
 ## Current Documentation

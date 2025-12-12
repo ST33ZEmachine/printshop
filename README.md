@@ -343,11 +343,7 @@ Historical and one-time setup documentation has been moved to `docs/archive/`:
 - Deployment permissions guides
 - Historical improvement logs and audits
 - Development journal
-
-The following webhook planning documents are kept in root for reference:
-
-- `WEBHOOK_PIPELINE_PLAN.md` - Initial planning document
-- `WEBHOOK_IMPLEMENTATION_PLAN.md` - Implementation checklist (now complete)
+- Webhook planning documents (initial planning and implementation checklist - now complete)
 
 ## Toolbox Binary
 
