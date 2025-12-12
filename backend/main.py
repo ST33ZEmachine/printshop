@@ -14,8 +14,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from integrations.trello.config import TrelloSettings
-from integrations.trello.publisher import LoggingTrelloEventPublisher
 from integrations.trello.router import get_trello_router
+from integrations.trello.service import TrelloService
 
 # In Docker container, agent.py is in same directory as main.py (/app/)
 # In local development, agent.py is in parent directory
@@ -101,9 +101,30 @@ active_sessions: Dict[str, bool] = {}
 # Trello webhook integration
 try:
     trello_settings = TrelloSettings()
-    trello_publisher = LoggingTrelloEventPublisher()
+    trello_service = TrelloService(trello_settings)
+    
+    # Initialize BigQuery client and extraction service for webhook processing
+    from integrations.trello.bigquery_client import TrelloBigQueryClient
+    from integrations.trello.publisher import BigQueryTrelloEventPublisher
+    from extractionPipeline.extract_single_card import CardExtractionService
+    
+    bq_client = TrelloBigQueryClient(
+        project_id=PROJECT_ID,
+        dataset_id="trello_rag",
+    )
+    
+    extraction_service = CardExtractionService(
+        project_id=PROJECT_ID,
+    )
+    
+    trello_publisher = BigQueryTrelloEventPublisher(
+        bq_client=bq_client,
+        trello_service=trello_service,
+        extraction_service=extraction_service,
+    )
+    
     app.include_router(get_trello_router(publisher=trello_publisher))
-    logger.info("Trello webhook route registered.")
+    logger.info("Trello webhook route registered with BigQuery processing.")
 except Exception as exc:
     logger.warning(
         "Trello settings not configured; Trello webhook route disabled.",

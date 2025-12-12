@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class TrelloSettings(BaseSettings):
     trello_key: str = Field(..., alias="TRELLO_KEY")
     trello_token: str = Field(..., alias="TRELLO_TOKEN")
-    webhook_callback_url: str = Field(..., alias="TRELLO_WEBHOOK_CALLBACK_URL")
+    webhook_callback_url: str | None = Field(None, alias="TRELLO_WEBHOOK_CALLBACK_URL")
     test_board_id: str | None = Field(None, alias="TRELLO_TEST_BOARD_ID")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

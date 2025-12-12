@@ -11,7 +11,16 @@ TRELLO_API_BASE = "https://api.trello.com/1"
 
 
 class TrelloService:
-    """Helper for Trello API interactions (non-destructive)."""
+    """
+    Helper for Trello API interactions (non-destructive, read-only).
+    
+    All board data operations are READ-ONLY:
+    - get_board(): Reads board information
+    - fetch_card(): Reads card data
+    
+    No card, list, or board data is ever modified.
+    Only webhook infrastructure (subscriptions) can be created/deleted.
+    """
 
     def __init__(
         self,
@@ -19,7 +28,7 @@ class TrelloService:
         client: Optional[httpx.Client] = None,
     ) -> None:
         self.settings = settings
-        self.client = client or httpx.Client(base_url=TRELLO_API_BASE, timeout=10.0)
+        self.client = client or httpx.Client(base_url=TRELLO_API_BASE, timeout=30.0)
 
     def _auth_params(self) -> dict[str, str]:
         return {
@@ -56,4 +65,49 @@ class TrelloService:
         response = self.client.delete(f"/webhooks/{webhook_id}", params=self._auth_params())
         response.raise_for_status()
         logger.info("Deleted Trello webhook", extra={"webhook_id": webhook_id})
+
+    def get_board(self, board_id: str) -> dict:
+        """
+        Get board information - useful for testing access.
+        
+        READ-ONLY operation - does not modify any Trello data.
+        """
+        response = self.client.get(f"/boards/{board_id}", params=self._auth_params())
+        response.raise_for_status()
+        return response.json()
+
+    def fetch_card(self, card_id: str) -> dict:
+        """
+        Fetch full card data including description, attachments, comments.
+        Used by webhook pipeline to get complete card data.
+        
+        READ-ONLY operation - does not modify any Trello data.
+        """
+        response = self.client.get(
+            f"/cards/{card_id}",
+            params={
+                **self._auth_params(),
+                "fields": "all",
+                "attachments": "true",
+                "actions": "commentCard",
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def list_boards(self) -> List[dict]:
+        """
+        List all boards accessible with the current API key/token.
+        
+        READ-ONLY operation - does not modify any Trello data.
+        """
+        response = self.client.get(
+            "/members/me/boards",
+            params={
+                **self._auth_params(),
+                "fields": "id,name,url,closed,idOrganization",
+            }
+        )
+        response.raise_for_status()
+        return response.json()
 
