@@ -62,8 +62,15 @@ maxPrint/
 │   ├── extract_trello_data.py  # Batch extraction
 │   ├── extract_single_card.py  # Single card extraction
 │   └── ...
+├── scripts/                # Utility and evaluation scripts
+│   ├── eval_queries.py    # Agent evaluation
+│   ├── eval_extraction_accuracy.py  # Extraction validation
+│   └── README.md          # Scripts documentation
+├── docs/                   # Documentation
+│   └── archive/            # Historical/one-time docs
 ├── cloudbuild.yaml         # Cloud Build configuration
 ├── deploy-backend.sh       # Deployment script
+├── test_agent.py           # Local agent testing
 └── README.md               # This file
 ```
 
@@ -330,7 +337,14 @@ The project includes a real-time webhook pipeline that captures Trello board eve
 
 ### Archived Documentation
 
-The following documents are kept for historical reference but are superseded by the documents above:
+Historical and one-time setup documentation has been moved to `docs/archive/`:
+
+- Configuration checklists and completion records
+- Deployment permissions guides
+- Historical improvement logs and audits
+- Development journal
+
+The following webhook planning documents are kept in root for reference:
 
 - `WEBHOOK_PIPELINE_PLAN.md` - Initial planning document
 - `WEBHOOK_IMPLEMENTATION_PLAN.md` - Implementation checklist (now complete)
