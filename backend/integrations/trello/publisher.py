@@ -165,13 +165,13 @@ class BigQueryTrelloEventPublisher:
             elif action_type == "updateCard":
                 await self._handle_update_card(action)
             else:
-            # Other action types - just mark as processed
-            logger.debug(f"Event {action.id} is {action_type}, no processing needed")
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self.bq_client.mark_event_processed(action.id, extraction_triggered=False)
-            )
+                # Other action types - just mark as processed
+                logger.debug(f"Event {action.id} is {action_type}, no processing needed")
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.bq_client.mark_event_processed(action.id, extraction_triggered=False)
+                )
 
         except Exception as e:
             logger.error(f"Error processing event {action.id}: {e}", exc_info=True)
