@@ -4,6 +4,15 @@ Utility CLI for Trello webhook management (non-destructive).
 
 import argparse
 import logging
+import os
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
 
 from integrations.trello.config import TrelloSettings
 from integrations.trello.service import TrelloService
