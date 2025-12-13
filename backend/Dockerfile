@@ -23,6 +23,9 @@ COPY backend/ .
 # Copy agent code from project root
 COPY agent.py .
 
+# Copy extraction pipeline (needed for webhook processing)
+COPY extractionPipeline/ extractionPipeline/
+
 # Download Linux toolbox binary (the local one is macOS ARM64)
 RUN curl -sL "https://storage.googleapis.com/genai-toolbox/v0.21.0/linux/amd64/toolbox" -o /app/toolbox && \
     chmod +x /app/toolbox
