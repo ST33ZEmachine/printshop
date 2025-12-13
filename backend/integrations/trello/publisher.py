@@ -151,7 +151,11 @@ class BigQueryTrelloEventPublisher:
             # Only process card-related actions
             if not action.data.card or not action.data.card.id:
                 logger.debug(f"Event {action.id} has no card, skipping processing")
-                self.bq_client.mark_event_processed(action.id, extraction_triggered=False)
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.bq_client.mark_event_processed(action.id, extraction_triggered=False)
+                )
                 return
 
             card_id = action.data.card.id
