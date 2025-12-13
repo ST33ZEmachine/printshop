@@ -99,6 +99,7 @@ class ChatResponse(BaseModel):
 active_sessions: Dict[str, bool] = {}
 
 # Trello webhook integration
+bq_client = None  # Initialize as None, set below if Trello is configured
 try:
     trello_settings = TrelloSettings()
     trello_service = TrelloService(trello_settings)
@@ -130,6 +131,16 @@ except Exception as exc:
         "Trello settings not configured; Trello webhook route disabled.",
         exc_info=exc,
     )
+    # Initialize bq_client even if Trello is not configured (for queue processing)
+    try:
+        from integrations.trello.bigquery_client import TrelloBigQueryClient
+        bq_client = TrelloBigQueryClient(
+            project_id=PROJECT_ID,
+            dataset_id="trello_rag",
+        )
+        logger.info("BigQuery client initialized for queue processing.")
+    except Exception as bq_exc:
+        logger.warning(f"Could not initialize BigQuery client: {bq_exc}")
 
 
 @app.get("/")
@@ -146,6 +157,40 @@ async def root():
 async def health():
     """Health check endpoint for Cloud Run."""
     return {"status": "healthy"}
+
+
+@app.post("/process-queue")
+async def process_queue(max_items: int = 50):
+    """
+    Process pending BigQuery operations from the retry queue.
+    
+    This endpoint is designed to be called by Cloud Scheduler every 5 minutes
+    to retry operations that failed due to streaming buffer.
+    
+    Args:
+        max_items: Maximum number of items to process in one run (default: 50)
+    
+    Returns:
+        Dict with processing statistics
+    """
+    try:
+        if not bq_client:
+            raise HTTPException(
+                status_code=503,
+                detail="BigQuery client not initialized"
+            )
+        
+        stats = bq_client.process_retry_queue(max_items=max_items)
+        return {
+            "status": "success",
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.error(f"Error processing queue: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing queue: {str(e)}"
+        )
 
 
 @app.post("/chat", response_model=ChatResponse)

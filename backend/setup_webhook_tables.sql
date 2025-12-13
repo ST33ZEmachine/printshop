@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS `maxprint-479504.trello_rag.bourquin_cards_current` (
   -- Metadata fields
   last_updated_at TIMESTAMP,
   last_extracted_at TIMESTAMP,
-  last_extraction_event_id STRING
+  last_extraction_event_id STRING,
+  last_event_type STRING
 )
 OPTIONS(
   description="Current state of all Trello cards. Updated on any card change. Mirrors bourquin_05122025_snapshot schema with additional metadata fields."
@@ -80,4 +81,25 @@ CREATE TABLE IF NOT EXISTS `maxprint-479504.trello_rag.bourquin_lineitems_curren
 )
 OPTIONS(
   description="Current state of all line items. Updated only when card description changes. Mirrors bourquin_05122025_snapshot_lineitems schema."
+);
+
+-- 4. Create pending_bigquery_updates table (retry queue for streaming buffer failures)
+CREATE TABLE IF NOT EXISTS `maxprint-479504.trello_rag.pending_bigquery_updates` (
+  update_id STRING NOT NULL,
+  operation_type STRING NOT NULL,  -- 'upsert_card', 'upsert_line_items', 'mark_event_processed'
+  target_table STRING NOT NULL,     -- 'bourquin_cards_current', 'bourquin_lineitems_current', 'trello_webhook_events'
+  payload JSON NOT NULL,             -- Operation-specific data (card data, line items, event_id, etc.)
+  retry_count INT64 NOT NULL DEFAULT 0,
+  first_queued_at TIMESTAMP NOT NULL,
+  last_retry_at TIMESTAMP,
+  next_retry_at TIMESTAMP NOT NULL, -- Calculated: first_queued_at + (retry_count * delay)
+  status STRING NOT NULL,            -- 'pending', 'processing', 'completed', 'failed'
+  error_message STRING,
+  completed_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY status, next_retry_at, operation_type
+OPTIONS(
+  description="Queue for BigQuery operations that failed due to streaming buffer. Processed by background job with exponential backoff."
 );

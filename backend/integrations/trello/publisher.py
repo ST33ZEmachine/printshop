@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional, Protocol
 
@@ -168,6 +169,8 @@ class BigQueryTrelloEventPublisher:
                 await self._handle_create_card(action)
             elif action_type == "updateCard":
                 await self._handle_update_card(action)
+            elif action_type == "deleteCard":
+                await self._handle_delete_card(action)
             else:
                 # Other action types - just mark as processed
                 logger.debug(f"Event {action.id} is {action_type}, no processing needed")
@@ -254,6 +257,7 @@ class BigQueryTrelloEventPublisher:
                 card_row,
                 event_id=action.id,
                 extraction_triggered=True,
+                event_type="createCard",
             )
         )
 
@@ -279,7 +283,7 @@ class BigQueryTrelloEventPublisher:
             )
 
     async def _handle_update_card(self, action: TrelloAction) -> None:
-        """Handle updateCard webhook: check if description changed, update accordingly."""
+        """Handle updateCard webhook: extract first, then do single MERGE operation."""
         card_id = action.data.card.id
 
         # Fetch full card data from Trello API (run in executor to avoid blocking)
@@ -290,12 +294,51 @@ class BigQueryTrelloEventPublisher:
             lambda: self.trello_service.fetch_card(card_id)
         )
 
-        # Check if description changed (run in executor)
-        new_description = card_data.get("desc")
-        loop = asyncio.get_event_loop()
-        description_changed = await loop.run_in_executor(
+        # Get current card to detect what changed
+        current_card = await loop.run_in_executor(
             None,
-            lambda: self.bq_client.description_changed(card_id, new_description)
+            lambda: self.bq_client.get_current_card(card_id)
+        )
+        
+        # Detect what changed to set appropriate event type
+        new_description = card_data.get("desc")
+        description_changed = (
+            current_card is None or 
+            current_card.get("desc") != new_description
+        ) if new_description else False
+        
+        # Check if card was archived/unarchived
+        new_closed = card_data.get("closed", False)
+        was_archived = current_card and current_card.get("closed") != new_closed and new_closed
+        was_unarchived = current_card and current_card.get("closed") != new_closed and not new_closed
+        
+        # Check if list changed
+        new_list_id = card_data.get("idList")
+        list_changed = current_card and current_card.get("list_id") != new_list_id
+        
+        # Check if title changed
+        new_name = card_data.get("name")
+        title_changed = current_card and current_card.get("name") != new_name
+        
+        # Determine event type
+        if was_archived:
+            event_type = "updateCard:archived"
+        elif was_unarchived:
+            event_type = "updateCard:unarchived"
+        elif description_changed:
+            event_type = "updateCard:desc_changed"
+        elif list_changed:
+            event_type = "updateCard:list_moved"
+        elif title_changed:
+            event_type = "updateCard:title_changed"
+        else:
+            event_type = "updateCard:other"
+
+        # Extract immediately (before any BigQuery operations)
+        logger.info(f"Extracting card {card_id} with LLM...")
+        extracted = await loop.run_in_executor(
+            None,
+            lambda: self.extraction_service.extract_single_card(card_data, enrich=True)
         )
 
         # Get board/list info from action
@@ -314,45 +357,32 @@ class BigQueryTrelloEventPublisher:
         else:
             # Get from card data (idList is in card, but name might not be)
             list_id = card_data.get("idList")
-            # Try to get list name from card data, or fetch it
-            if list_id and not list_name:
-                # Card data might have list info, or we can fetch it
-                # For now, we'll get it from current table or leave it to be updated later
-                current_card = self.bq_client.get_current_card(card_id)
-                if current_card:
-                    list_name = current_card.get("list_name")
+            # Try to get list name from current card if available
+            if list_id and not list_name and current_card:
+                list_name = current_card.get("list_name")
 
+        # Format for BigQuery
+        card_row = format_card_for_bigquery(
+            extracted,
+            board_id=board_id,
+            board_name=board_name,
+            list_id=list_id,
+            list_name=list_name,
+        )
+
+        # Single MERGE operation (works with streaming buffer, handles both insert and update)
+        await loop.run_in_executor(
+            None,
+            lambda: self.bq_client.upsert_card_current(
+                card_row,
+                event_id=action.id,
+                extraction_triggered=description_changed,
+                event_type=event_type,
+            )
+        )
+
+        # Update line items only if description changed
         if description_changed:
-            # Description changed - re-extract with LLM
-            logger.info(f"Description changed for card {card_id}, re-extracting...")
-            # Run extraction in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            extracted = await loop.run_in_executor(
-                None,
-                lambda: self.extraction_service.extract_single_card(card_data, enrich=True)
-            )
-
-            # Format for BigQuery
-            card_row = format_card_for_bigquery(
-                extracted,
-                board_id=board_id,
-                board_name=board_name,
-                list_id=list_id,
-                list_name=list_name,
-            )
-
-            # Update current table (all fields) - run in executor
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self.bq_client.upsert_card_current(
-                    card_row,
-                    event_id=action.id,
-                    extraction_triggered=True,
-                )
-            )
-
-            # Update line items (delete + re-insert)
             line_items = extracted.get("line_items", [])
             if line_items:
                 line_item_rows = format_line_items_for_bigquery(card_id, line_items)
@@ -360,85 +390,57 @@ class BigQueryTrelloEventPublisher:
                     None,
                     lambda: self.bq_client.upsert_line_items_current(card_id, line_item_rows)
                 )
-
-            logger.info(f"Successfully updated card {card_id} with new extraction")
-            # Mark event as processed (run in executor)
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self.bq_client.mark_event_processed(action.id, extraction_triggered=True)
-            )
-
+            logger.info(f"Description changed - updated line items for card {card_id}")
         else:
-            # Description unchanged - just update metadata
-            logger.debug(f"Description unchanged for card {card_id}, updating metadata only...")
-            
-            # Description unchanged - update metadata only, preserve extracted fields
-            # Get current card to preserve extracted data (run in executor)
-            loop = asyncio.get_event_loop()
-            current_card = await loop.run_in_executor(
-                None,
-                lambda: self.bq_client.get_current_card(card_id)
-            )
-            
-            if current_card:
-                # Merge: preserve extracted fields, update metadata from card_data
-                card_row = current_card.copy()  # Start with current (has extracted fields)
-                
-                # Update metadata fields from new card data
-                card_row.update({
-                    "name": card_data.get("name", card_row.get("name")),
-                    "desc": card_data.get("desc", card_row.get("desc")),  # Update desc even if unchanged
-                    "closed": card_data.get("closed", card_row.get("closed", False)),
-                    "dateLastActivity": card_data.get("dateLastActivity", card_row.get("dateLastActivity")),
-                    # Update list/board info
-                    "list_id": list_id or card_row.get("list_id"),
-                    "list_name": list_name or card_row.get("list_name"),
-                    "board_id": board_id or card_row.get("board_id"),
-                    "board_name": board_name or card_row.get("board_name"),
-                    # Update labels (process from card_data)
-                })
-                
-                # Process labels from card_data if present
-                if "labels" in card_data:
-                    label_names = []
-                    for lbl in card_data.get("labels", []):
-                        if isinstance(lbl, dict):
-                            name = (lbl.get("name") or "").strip()
-                        elif isinstance(lbl, str):
-                            name = lbl.strip()
-                        else:
-                            name = str(lbl).strip()
-                        if name:
-                            label_names.append(name)
-                    if label_names:
-                        card_row["labels"] = ", ".join(label_names)
-            else:
-                # Card doesn't exist in current table yet - this shouldn't happen for updateCard
-                # But handle it gracefully
-                logger.warning(f"Card {card_id} not found in current table for updateCard")
-                card_row = format_card_for_bigquery(
-                    card_data,
-                    board_id=board_id,
-                    board_name=board_name,
-                    list_id=list_id,
-                    list_name=list_name,
-                )
-            
-            # Update current table (metadata only, no extraction) - run in executor
-            await loop.run_in_executor(
-                None,
-                lambda: self.bq_client.upsert_card_current(
-                    card_row,
-                    event_id=action.id,
-                    extraction_triggered=False,
-                )
-            )
+            logger.debug(f"Description unchanged for card {card_id}, line items not updated")
 
-            logger.info(f"Successfully updated metadata for card {card_id}")
-            # Mark event as processed (run in executor)
+        logger.info(f"Successfully processed updateCard for {card_id} (event_type: {event_type})")
+        # Mark event as processed (run in executor)
+        await loop.run_in_executor(
+            None,
+            lambda: self.bq_client.mark_event_processed(action.id, extraction_triggered=description_changed)
+        )
+
+    async def _handle_delete_card(self, action: TrelloAction) -> None:
+        """Handle deleteCard webhook: mark card as deleted in current table."""
+        card_id = action.data.card.id
+        
+        # Get current card from BigQuery (can't fetch from Trello API since it's deleted)
+        loop = asyncio.get_event_loop()
+        current_card = await loop.run_in_executor(
+            None,
+            lambda: self.bq_client.get_current_card(card_id)
+        )
+        
+        if not current_card:
+            logger.warning(f"Card {card_id} not found in current table, cannot mark as deleted")
             await loop.run_in_executor(
                 None,
                 lambda: self.bq_client.mark_event_processed(action.id, extraction_triggered=False)
             )
+            return
+        
+        # Update card to mark as deleted (closed=true, event_type=deleteCard)
+        # Keep all other fields the same
+        card_row = current_card.copy()
+        card_row["closed"] = True
+        card_row["last_updated_at"] = datetime.now(timezone.utc).isoformat()
+        
+        # Use MERGE to update the card with deleteCard event type
+        await loop.run_in_executor(
+            None,
+            lambda: self.bq_client.upsert_card_current(
+                card_row,
+                event_id=action.id,
+                extraction_triggered=False,
+                event_type="deleteCard",
+            )
+        )
+        
+        logger.info(f"Successfully processed deleteCard for {card_id}")
+        # Mark event as processed (run in executor)
+        await loop.run_in_executor(
+            None,
+            lambda: self.bq_client.mark_event_processed(action.id, extraction_triggered=False)
+        )
 
